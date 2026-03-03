@@ -132,8 +132,74 @@
     <script>
         let map, droneLayer, vectorLayers = [];
         let measureSource, measureVector, drawInteraction;
-        let activeMeasureType = null; // 'LineString' or 'Polygon'
+        let activeMeasureType = null; 
         const localTileUrls = new Map();
+
+        // --- Styles for Measurement ---
+        const createLabelStyle = (text, rotation = 0) => {
+            return new ol.style.Text({
+                text: text,
+                font: 'bold 13px Prompt, sans-serif',
+                fill: new ol.style.Fill({ color: '#ef4444' }),
+                stroke: new ol.style.Stroke({ color: '#ffffff', width: 4 }),
+                offsetY: -12, // อยู่เหนือเส้น
+                textAlign: 'center',
+                rotation: rotation
+            });
+        };
+
+        const measureStyle = function(feature) {
+            const styles = [
+                new ol.style.Style({
+                    stroke: new ol.style.Stroke({ color: '#ef4444', width: 3, lineDash: [5, 10] }),
+                    fill: new ol.style.Fill({ color: 'rgba(239, 68, 68, 0.2)' }),
+                    image: new ol.style.Circle({ radius: 5, fill: new ol.style.Fill({ color: '#ef4444' }) })
+                })
+            ];
+
+            const geometry = feature.getGeometry();
+            const type = geometry.getType();
+
+            if (type === 'LineString') {
+                const coordinates = geometry.getCoordinates();
+                // วนลูปเพื่อใส่ป้ายกำกับที่กึ่งกลางของแต่ละช่วงเส้น (Segment)
+                for (let i = 0; i < coordinates.length - 1; i++) {
+                    const start = coordinates[i];
+                    const end = coordinates[i + 1];
+                    const midpoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
+                    
+                    // คำนวณระยะทางช่วงนี้
+                    const segmentGeom = new ol.geom.LineString([start, end]);
+                    const length = ol.sphere.getLength(segmentGeom);
+                    const label = length > 1000 ? (length / 1000).toFixed(2) + ' กม.' : length.toFixed(2) + ' ม.';
+                    
+                    // คำนวณมุมเอียงของเส้น (Rotation)
+                    const dx = end[0] - start[0];
+                    const dy = end[1] - start[1];
+                    let rotation = Math.atan2(dy, dx);
+                    
+                    // ปรับมุมให้อ่านง่ายขึ้น (ไม่ให้ตัวหนังสือกลับหัว)
+                    if (rotation > Math.PI / 2 || rotation < -Math.PI / 2) {
+                        rotation += Math.PI;
+                    }
+
+                    styles.push(new ol.style.Style({
+                        geometry: new ol.geom.Point(midpoint),
+                        text: createLabelStyle(label, -rotation)
+                    }));
+                }
+            } else if (type === 'Polygon') {
+                const area = ol.sphere.getArea(geometry);
+                const label = formatThaiArea(area);
+                const labelPoint = geometry.getInteriorPoint();
+                
+                styles.push(new ol.style.Style({
+                    geometry: labelPoint,
+                    text: createLabelStyle(label, 0)
+                }));
+            }
+            return styles;
+        };
 
         function init() {
             const lastPos = JSON.parse(localStorage.getItem('ol_pos') || '{"lon":103.057069,"lat":15.418727,"zoom":16}');
@@ -148,11 +214,7 @@
             measureSource = new ol.source.Vector();
             measureVector = new ol.layer.Vector({
                 source: measureSource,
-                style: new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#ef4444', width: 3, lineDash: [5, 10] }),
-                    fill: new ol.style.Fill({ color: 'rgba(239, 68, 68, 0.2)' }),
-                    image: new ol.style.Circle({ radius: 5, fill: new ol.style.Fill({ color: '#ef4444' }) })
-                }),
+                style: measureStyle,
                 zIndex: 100
             });
 
@@ -187,7 +249,6 @@
             });
         }
 
-        // --- Helper: Format Area (Thai Unit) ---
         function formatThaiArea(areaSqm) {
             const rai = Math.floor(areaSqm / 1600);
             const ngan = Math.floor((areaSqm % 1600) / 400);
@@ -199,50 +260,35 @@
         document.getElementById('folderInput').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
-
             localTileUrls.clear();
             files.forEach(file => {
                 const parts = file.webkitRelativePath.split('/');
                 const len = parts.length;
                 if (len >= 3) {
-                    const z = parts[len-3];
-                    const x = parts[len-2];
-                    const y = parts[len-1].split('.')[0];
-                    if (!isNaN(z) && !isNaN(x) && !isNaN(y)) {
-                        localTileUrls.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
-                    }
+                    const z = parts[len-3], x = parts[len-2], y = parts[len-1].split('.')[0];
+                    if (!isNaN(z) && !isNaN(x) && !isNaN(y)) localTileUrls.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
                 }
             });
-
             if (droneLayer) map.removeLayer(droneLayer);
-            
             droneLayer = new ol.layer.Tile({
                 source: new ol.source.XYZ({
                     tileUrlFunction: function(tileCoord) {
-                        const z = tileCoord[0];
-                        const x = tileCoord[1];
-                        const y = tileCoord[2];
-                        const key1 = `${z}/${x}/${y}`;
-                        const key2 = `${z}/${x}/${-y-1}`;
-                        return localTileUrls.get(key1) || localTileUrls.get(key2) || '';
+                        const z = tileCoord[0], x = tileCoord[1], y = tileCoord[2];
+                        return localTileUrls.get(`${z}/${x}/${y}`) || localTileUrls.get(`${z}/${x}/${-y-1}`) || '';
                     },
                     maxZoom: 22
                 }),
                 zIndex: 5
             });
-            
             map.addLayer(droneLayer);
             updateUI();
         });
 
         function loadRemoteTiles() {
-            const url = prompt("ระบุ URL ของ Tiles (เช่น http://localhost:8080/tiles/{z}/{x}/{y}.png)", "tiles/{z}/{x}/{y}.png");
+            const url = prompt("ระบุ URL ของ Tiles", "tiles/{z}/{x}/{y}.png");
             if (!url) return;
             if (droneLayer) map.removeLayer(droneLayer);
-            droneLayer = new ol.layer.Tile({
-                source: new ol.source.XYZ({ url: url, crossOrigin: 'anonymous' }),
-                zIndex: 5
-            });
+            droneLayer = new ol.layer.Tile({ source: new ol.source.XYZ({ url: url, crossOrigin: 'anonymous' }), zIndex: 5 });
             map.addLayer(droneLayer);
             updateUI();
         }
@@ -255,15 +301,10 @@
                 try {
                     const text = await f.text();
                     const data = JSON.parse(text);
-                    const source = new ol.source.Vector({
-                        features: new ol.format.GeoJSON().readFeatures(data, { featureProjection: 'EPSG:3857' })
-                    });
+                    const source = new ol.source.Vector({ features: new ol.format.GeoJSON().readFeatures(data, { featureProjection: 'EPSG:3857' }) });
                     const layer = new ol.layer.Vector({
                         source: source,
-                        style: new ol.style.Style({
-                            stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2 }),
-                            fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.15)' })
-                        }),
+                        style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2 }), fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.15)' }) }),
                         properties: { isParcel: true, name: f.name }
                     });
                     map.addLayer(layer);
@@ -275,50 +316,43 @@
             document.getElementById('loader').style.display = 'none';
         });
 
-        // --- Advanced Measurement (Fixed units & Area) ---
+        // --- Measurement Toggle ---
         function toggleMeasure(type) {
-            // If clicking same type, turn off
-            if (activeMeasureType === type) {
-                activeMeasureType = null;
-            } else {
-                activeMeasureType = type;
-            }
-
             const btnLine = document.getElementById('measureLineBtn');
             const btnArea = document.getElementById('measureAreaBtn');
-            
-            map.removeInteraction(drawInteraction);
             measureSource.clear();
+            document.getElementById('coordDisplay').textContent = 'Ready';
+
+            if (activeMeasureType === type) {
+                activeMeasureType = null;
+                map.removeInteraction(drawInteraction);
+                btnLine.classList.remove('active');
+                btnArea.classList.remove('active');
+                return;
+            }
+
+            activeMeasureType = type;
+            map.removeInteraction(drawInteraction);
             btnLine.classList.remove('active');
             btnArea.classList.remove('active');
 
-            if (activeMeasureType) {
-                if (activeMeasureType === 'LineString') btnLine.classList.add('active');
-                if (activeMeasureType === 'Polygon') btnArea.classList.add('active');
+            if (activeMeasureType === 'LineString') btnLine.classList.add('active');
+            if (activeMeasureType === 'Polygon') btnArea.classList.add('active');
 
-                drawInteraction = new ol.interaction.Draw({
-                    source: measureSource,
-                    type: activeMeasureType
-                });
+            drawInteraction = new ol.interaction.Draw({ source: measureSource, type: activeMeasureType });
 
-                drawInteraction.on('drawend', (e) => {
-                    if (activeMeasureType === 'LineString') {
-                        const length = ol.sphere.getLength(e.feature.getGeometry());
-                        let output;
-                        if (length > 1000) {
-                            output = (length / 1000).toFixed(2) + ' กม.';
-                        } else {
-                            output = length.toFixed(2) + ' ม.';
-                        }
-                        document.getElementById('coordDisplay').textContent = `ระยะ: ${output}`;
-                    } else if (activeMeasureType === 'Polygon') {
-                        const area = ol.sphere.getArea(e.feature.getGeometry());
-                        const output = formatThaiArea(area);
-                        document.getElementById('coordDisplay').textContent = `พื้นที่: ${output}`;
-                    }
-                });
-                map.addInteraction(drawInteraction);
-            }
+            drawInteraction.on('drawstart', () => { measureSource.clear(); });
+            drawInteraction.on('drawend', (e) => {
+                const geom = e.feature.getGeometry();
+                if (type === 'LineString') {
+                    const len = ol.sphere.getLength(geom);
+                    document.getElementById('coordDisplay').textContent = len > 1000 ? (len/1000).toFixed(2)+' กม.' : len.toFixed(2)+' ม.';
+                } else {
+                    const area = ol.sphere.getArea(geom);
+                    document.getElementById('coordDisplay').textContent = formatThaiArea(area);
+                }
+            });
+            map.addInteraction(drawInteraction);
         }
 
         // --- Search & UI ---
@@ -328,8 +362,7 @@
             let results = [];
             vectorLayers.forEach(l => {
                 l.getSource().getFeatures().forEach(f => {
-                    const p = f.getProperties();
-                    const code = String(p.parcel_cod || p.Parcel_cod || p.id || '');
+                    const code = String(f.getProperties().parcel_cod || f.getProperties().Parcel_cod || f.getProperties().id || '');
                     if (code.toLowerCase().includes(val.toLowerCase())) results.push({ code, feature: f });
                 });
             });
@@ -355,11 +388,9 @@
 
         function showInfo(obj) {
             const p = obj.feature.getProperties();
-            const code = p.parcel_cod || p.Parcel_cod || p.id || 'N/A';
-            document.getElementById('parcelDisplay').textContent = code;
+            document.getElementById('parcelDisplay').textContent = p.parcel_cod || p.Parcel_cod || p.id || 'N/A';
             document.getElementById('layerSource').textContent = obj.layerName;
-            const area = ol.sphere.getArea(obj.feature.getGeometry());
-            document.getElementById('areaDisplay').textContent = formatThaiArea(area);
+            document.getElementById('areaDisplay').textContent = formatThaiArea(ol.sphere.getArea(obj.feature.getGeometry()));
             document.getElementById('navBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${obj.coord[1]},${obj.coord[0]}`, '_blank');
             const panel = document.getElementById('resultPanel');
             panel.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
@@ -367,8 +398,7 @@
         }
 
         function closePanel() {
-            const panel = document.getElementById('resultPanel');
-            panel.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+            document.getElementById('resultPanel').classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
         }
 
         function updateUI() {
@@ -383,19 +413,16 @@
             if (droneLayer) map.removeLayer(droneLayer);
             vectorLayers = []; droneLayer = null;
             updateUI(); closePanel();
+            measureSource.clear();
         }
 
         function getCurrentLocation() {
             navigator.geolocation.getCurrentPosition(pos => {
-                const coord = ol.proj.fromLonLat([pos.coords.longitude, pos.coords.latitude]);
-                map.getView().animate({ center: coord, zoom: 19 });
+                map.getView().animate({ center: ol.proj.fromLonLat([pos.coords.longitude, pos.coords.latitude]), zoom: 19 });
             });
         }
 
-        function copyCode() {
-            navigator.clipboard.writeText(document.getElementById('parcelDisplay').textContent);
-        }
-
+        function copyCode() { navigator.clipboard.writeText(document.getElementById('parcelDisplay').textContent); }
         window.onload = init;
     </script>
 </body>
