@@ -2,8 +2,8 @@
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบตรวจสอบแปลงที่ดิน (Local Machine Only)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ระบบตรวจสอบแปลงที่ดิน (Mobile Friendly)</title>
     <!-- Libraries -->
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,111 +11,108 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <style>
-        #map { height: calc(100vh - 220px); width: 100%; background: #000; cursor: crosshair; }
-        .layer-item { font-size: 0.75rem; padding: 2px 10px; border-radius: 99px; background: #f3f4f6; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 4px; }
+        /* ปรับความสูงแผนที่ให้เหมาะกับหน้าจอมือถือ */
+        #map { height: calc(100vh - 280px); width: 100%; background: #000; cursor: crosshair; }
+        @media (min-width: 768px) {
+            #map { height: calc(100vh - 220px); }
+        }
+        .layer-item { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; background: #f3f4f6; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
         .drone-badge { background: #f59e0b; color: white; border-color: #d97706; }
         .geojson-badge { background: #6366f1; color: white; border-color: #4f46e5; }
-        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; color: white; text-align: center; flex-direction: column; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; color: white; text-align: center; flex-direction: column; padding: 20px; }
     </style>
 </head>
-<body class="bg-gray-50 font-sans">
+<body class="bg-gray-50 font-sans overflow-x-hidden">
 
     <div id="loader" class="loading-overlay">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mb-4"></div>
-        <p class="font-bold text-xl text-white">กำลังประมวลผลไฟล์จากเครื่อง...</p>
-        <p id="progressStatus" class="text-sm mt-2 text-gray-400"></p>
+        <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-white mb-4"></div>
+        <p class="font-bold text-lg text-white">กำลังประมวลผลข้อมูล...</p>
+        <p id="progressStatus" class="text-xs mt-2 text-gray-400"></p>
     </div>
 
-    <header class="bg-slate-900 text-white p-4 shadow-xl">
+    <header class="bg-slate-900 text-white p-3 shadow-xl">
         <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-lg font-bold flex items-center gap-2">
-                <span class="text-2xl">🌍</span> ระบบตรวจสอบแปลงที่ดิน (Offline Support)
+            <h1 class="text-sm md:text-lg font-bold flex items-center gap-2">
+                <span class="text-xl">🌍</span> ระบบตรวจสอบที่ดิน
             </h1>
-            <div id="coordDisplay" class="text-xs font-mono bg-slate-800 px-3 py-1 rounded border border-slate-700">คลิกบนแผนที่เพื่อดูข้อมูล</div>
+            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-2 py-1 rounded border border-slate-700">แตะบนแผนที่</div>
         </div>
     </header>
 
-    <div class="p-4 bg-white shadow-sm border-b flex flex-col gap-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="p-3 bg-white shadow-sm border-b flex flex-col gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <!-- 1. นำเข้า GeoJSON -->
-            <div class="border-2 border-dashed border-indigo-200 rounded-xl p-3 hover:bg-indigo-50 transition-colors">
-                <label class="block text-xs font-bold text-indigo-600 uppercase mb-2">1. นำเข้าข้อมูลแปลงที่ดิน (.geojson)</label>
+            <div class="border-2 border-dashed border-indigo-200 rounded-xl p-2 hover:bg-indigo-50">
+                <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">1. ไฟล์แปลงที่ดิน (.geojson)</label>
                 <input type="file" id="geojsonInput" accept=".geojson,.json" multiple
-                       class="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer"/>
+                       class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-indigo-600 file:text-white cursor-pointer"/>
             </div>
 
-            <!-- 2. นำเข้า Tiles จากโฟลเดอร์เครื่องโดยตรง -->
-            <div class="border-2 border-dashed border-orange-200 rounded-xl p-3 hover:bg-orange-50 transition-colors">
-                <label class="block text-xs font-bold text-orange-600 uppercase mb-2">2. เลือกโฟลเดอร์ tiles ในเครื่อง (C:\...\tiles)</label>
+            <!-- 2. นำเข้า Tiles -->
+            <div class="border-2 border-dashed border-orange-200 rounded-xl p-2 hover:bg-orange-50">
+                <label class="block text-[10px] font-bold text-orange-600 uppercase mb-1">2. โฟลเดอร์ tiles (XYZ)</label>
                 <input type="file" id="folderInput" webkitdirectory directory
-                       class="block w-full text-xs text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-orange-500 file:text-white hover:file:bg-orange-600 cursor-pointer"/>
-                <p class="text-[10px] text-gray-400 mt-1 italic">* เลือกโฟลเดอร์ที่มีเลข 1-21 อยู่ข้างใน</p>
+                       class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-orange-500 file:text-white cursor-pointer"/>
             </div>
         </div>
         
-        <div class="flex justify-between items-center">
-            <div id="layerList" class="flex flex-wrap gap-2"></div>
-            <button onclick="clearLayers()" class="text-xs font-bold text-red-500 hover:underline">ล้างข้อมูลทั้งหมด</button>
+        <div class="flex justify-between items-center overflow-x-auto pb-1">
+            <div id="layerList" class="flex gap-2"></div>
+            <button onclick="clearLayers()" class="text-[10px] font-bold text-red-500 ml-2 whitespace-nowrap">ล้างข้อมูล</button>
         </div>
     </div>
 
     <div id="map"></div>
 
-    <!-- ผลลัพธ์แสดงที่รหัสแปลง -->
-    <div id="resultPanel" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1000] w-[90%] max-w-sm bg-white p-5 rounded-3xl shadow-2xl border border-gray-100 hidden transform transition-all duration-300 scale-100">
-        <div class="flex justify-between items-start mb-2">
-            <h3 class="text-gray-400 text-[10px] font-bold uppercase tracking-tighter">รหัสแปลงที่ดินที่พบ</h3>
-            <button onclick="closePanel()" class="bg-gray-100 p-1 rounded-full text-gray-400 hover:text-gray-600">✕</button>
+    <!-- ผลลัพธ์แสดงที่รหัสแปลง - ปรับให้เหมาะกับมือถือ -->
+    <div id="resultPanel" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] w-[92%] max-w-sm bg-white p-4 rounded-2xl shadow-2xl border border-gray-100 hidden">
+        <div class="flex justify-between items-start mb-1">
+            <h3 class="text-gray-400 text-[9px] font-bold uppercase tracking-tight">รหัสแปลงที่ดิน</h3>
+            <button onclick="closePanel()" class="bg-gray-100 p-1.5 rounded-full text-gray-400">✕</button>
         </div>
-        <div id="parcelDisplay" class="text-3xl font-black text-slate-800 break-all">----</div>
-        <div id="layerSource" class="text-[10px] text-gray-400 mt-2 italic font-medium"></div>
+        <div id="parcelDisplay" class="text-2xl font-black text-slate-800 break-all leading-tight">----</div>
+        <div id="layerSource" class="text-[9px] text-gray-400 mt-1 italic"></div>
     </div>
 
     <script>
         let map;
-        let geoLayers = []; // เก็บ Array ของ Object {name, layer}
+        let geoLayers = [];
         let droneTileLayer = null;
         let localTileMap = new Map();
 
         function initMap() {
-            // พิกัดคูเมือง บุรีรัมย์ (หรือเปลี่ยนตามจุดที่คุณต้องการ)
             map = L.map('map', { 
                 zoomControl: false,
-                maxZoom: 22 
+                maxZoom: 22,
+                tap: true // รองรับการแตะบนมือถือรุ่นเก่า
             }).setView([15.418727, 103.057069], 16);
             
             L.control.zoom({ position: 'topright' }).addTo(map);
             
-            // Google Hybrid (Base Layer)
             L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
                 maxZoom: 22, 
                 subdomains:['mt0','mt1','mt2','mt3'], 
                 zIndex: 0
             }).addTo(map);
 
-            // คลิกเพื่อหาข้อมูล
-            map.on('click', async (e) => {
+            map.on('click', (e) => {
                 const latlng = e.latlng;
-                document.getElementById('coordDisplay').textContent = `${latlng.lat.toFixed(6)}, ${latlng.lng.toFixed(6)}`;
-                
-                // ค้นหารหัสแปลงจากทุก Layer ที่มี
+                document.getElementById('coordDisplay').textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
                 const result = findParcelCodeAtPoint(latlng);
-                
                 if (result) {
                     showResult(result.code, result.fileName, false);
                 } else {
-                    showResult("ไม่พบข้อมูล", "ไม่พบจุดพิกัดนี้ในไฟล์ GeoJSON", true);
+                    showResult("ไม่พบข้อมูล", "พิกัดอยู่นอกขอบเขตแปลง", true);
                 }
             });
         }
 
-        // --- ระบบจัดการ Tiles XYZ จากเครื่อง ---
         document.getElementById('folderInput').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
 
             document.getElementById('loader').style.display = 'flex';
-            document.getElementById('progressStatus').textContent = `กำลังอ่านไฟล์ภาพ ${files.length} ไฟล์...`;
+            document.getElementById('progressStatus').textContent = `กำลังเตรียมรูปภาพ...`;
             
             localTileMap.clear();
 
@@ -127,7 +124,6 @@
                     const yExt = parts[parts.length - 1];
                     const y = yExt.split('.')[0];
                     const key = `${z}/${x}/${y}`;
-                    
                     localTileMap.set(key, URL.createObjectURL(file));
                 }
             });
@@ -151,62 +147,41 @@
             document.getElementById('loader').style.display = 'none';
         });
 
-        // --- ระบบจัดการ GeoJSON ---
         document.getElementById('geojsonInput').addEventListener('change', async function(e) {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
-
             document.getElementById('loader').style.display = 'flex';
-            
             for (const file of files) {
                 try {
-                    document.getElementById('progressStatus').textContent = `กำลังโหลด: ${file.name}`;
+                    document.getElementById('progressStatus').textContent = `โหลด: ${file.name}`;
                     const text = await file.text();
                     const data = JSON.parse(text);
-                    
                     const layer = L.geoJSON(data, {
                         style: { color: '#00ffff', weight: 1, fillOpacity: 0.1 }
                     }).addTo(map);
-                    
                     geoLayers.push({ name: file.name, layer: layer });
-                    
-                    // ปรับหน้าจอให้เห็นไฟล์แรกที่โหลด
                     if (geoLayers.length === 1) map.fitBounds(layer.getBounds());
-                } catch (err) {
-                    console.error("Error loading GeoJSON:", err);
-                }
+                } catch (err) {}
             }
-
             updateUI();
             document.getElementById('loader').style.display = 'none';
         });
 
-        // --- ฟังก์ชันหลัก: หา Parcel Code (ดัดแปลงจาก getParcelCodeAtLocation.js) ---
         function findParcelCodeAtPoint(latlng) {
             const point = turf.point([latlng.lng, latlng.lat]);
-            
-            // วนลูปเช็คจากเลเยอร์ล่าสุดที่นำเข้า (Priority สูงสุด)
             for (let i = geoLayers.length - 1; i >= 0; i--) {
                 const { layer, name } = geoLayers[i];
                 let foundCode = null;
-
                 layer.eachLayer(l => {
                     if (foundCode) return;
-
-                    // 1. เช็ค Bounding Box ก่อน (เร็วมาก)
                     if (l.getBounds && !l.getBounds().contains(latlng)) return;
-
-                    // 2. เช็คเนื้อ Polygon ด้วย Turf
                     try {
                         if (l.feature && turf.booleanPointInPolygon(point, l.feature)) {
                             const p = l.feature.properties;
-                            // รองรับหลายรูปแบบชื่อ Field
-                            foundCode = p?.parcel_cod || p?.Parcel_cod || p?.PARCEL_COD || 
-                                        p?.parcelCod || p?.id || p?.code;
+                            foundCode = p?.parcel_cod || p?.Parcel_cod || p?.PARCEL_COD || p?.id || p?.code;
                         }
                     } catch (e) {}
                 });
-
                 if (foundCode) return { code: foundCode, fileName: name };
             }
             return null;
@@ -216,15 +191,14 @@
             const list = document.getElementById('layerList');
             const items = [];
             geoLayers.forEach(l => items.push(`<span class="layer-item geojson-badge">📄 ${l.name}</span>`));
-            if (droneTileLayer) items.push(`<span class="layer-item drone-badge">🚁 Drone Tiles (XYZ)</span>`);
+            if (droneTileLayer) items.push(`<span class="layer-item drone-badge">🚁 Drone Map</span>`);
             list.innerHTML = items.join('');
         }
 
         function clearLayers() {
             geoLayers.forEach(l => map.removeLayer(l.layer));
             if (droneTileLayer) map.removeLayer(droneTileLayer);
-            geoLayers = []; 
-            droneTileLayer = null;
+            geoLayers = []; droneTileLayer = null;
             localTileMap.clear();
             updateUI();
             closePanel();
@@ -234,15 +208,12 @@
             const panel = document.getElementById('resultPanel');
             const display = document.getElementById('parcelDisplay');
             display.textContent = text;
-            display.className = isError ? "text-xl font-bold text-red-500" : "text-3xl font-black text-slate-800";
-            document.getElementById('layerSource').textContent = source ? `จากไฟล์: ${source}` : "";
+            display.className = isError ? "text-lg font-bold text-red-500" : "text-2xl font-black text-slate-800";
+            document.getElementById('layerSource').textContent = source ? `ที่มา: ${source}` : "";
             panel.classList.remove('hidden');
         }
 
-        function closePanel() { 
-            document.getElementById('resultPanel').classList.add('hidden'); 
-        }
-
+        function closePanel() { document.getElementById('resultPanel').classList.add('hidden'); }
         window.onload = initMap;
     </script>
 </body>
