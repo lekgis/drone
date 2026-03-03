@@ -92,8 +92,9 @@
         <div id="map"></div>
         
         <div class="absolute top-4 left-4 z-[1000] flex flex-col">
-            <div onclick="getCurrentLocation()" class="map-btn">📍</div>
-            <div id="measureBtn" onclick="toggleMeasure()" class="map-btn">📏</div>
+            <div onclick="getCurrentLocation()" class="map-btn" title="ตำแหน่งปัจจุบัน">📍</div>
+            <div id="measureLineBtn" onclick="toggleMeasure('LineString')" class="map-btn" title="วัดระยะทาง">📏</div>
+            <div id="measureAreaBtn" onclick="toggleMeasure('Polygon')" class="map-btn" title="วัดพื้นที่">📐</div>
         </div>
 
         <div class="absolute top-4 right-4 z-[1000] w-48 md:w-64">
@@ -131,7 +132,7 @@
     <script>
         let map, droneLayer, vectorLayers = [];
         let measureSource, measureVector, drawInteraction;
-        let isMeasuring = false;
+        let activeMeasureType = null; // 'LineString' or 'Polygon'
         const localTileUrls = new Map();
 
         function init() {
@@ -149,6 +150,7 @@
                 source: measureSource,
                 style: new ol.style.Style({
                     stroke: new ol.style.Stroke({ color: '#ef4444', width: 3, lineDash: [5, 10] }),
+                    fill: new ol.style.Fill({ color: 'rgba(239, 68, 68, 0.2)' }),
                     image: new ol.style.Circle({ radius: 5, fill: new ol.style.Fill({ color: '#ef4444' }) })
                 }),
                 zIndex: 100
@@ -165,7 +167,7 @@
             });
 
             map.on('singleclick', function(evt) {
-                if (isMeasuring) return;
+                if (activeMeasureType) return;
                 const coordinate = ol.proj.toLonLat(evt.coordinate);
                 document.getElementById('coordDisplay').textContent = `${coordinate[1].toFixed(6)}, ${coordinate[0].toFixed(6)}`;
                 let found = null;
@@ -185,16 +187,21 @@
             });
         }
 
-        // --- Tile Handling (FIXED) ---
+        // --- Helper: Format Area (Thai Unit) ---
+        function formatThaiArea(areaSqm) {
+            const rai = Math.floor(areaSqm / 1600);
+            const ngan = Math.floor((areaSqm % 1600) / 400);
+            const wa = ((areaSqm % 400) / 4).toFixed(1);
+            return `${rai}-${ngan}-${wa} ไร่`;
+        }
 
-        // 1. โหลดจาก Folder ในเครื่อง
+        // --- Tile Handling ---
         document.getElementById('folderInput').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
 
             localTileUrls.clear();
             files.forEach(file => {
-                // ค้นหาโครงสร้าง z/x/y ในชื่อไฟล์
                 const parts = file.webkitRelativePath.split('/');
                 const len = parts.length;
                 if (len >= 3) {
@@ -214,12 +221,9 @@
                     tileUrlFunction: function(tileCoord) {
                         const z = tileCoord[0];
                         const x = tileCoord[1];
-                        const y = tileCoord[2]; // OpenLayers Y
-                        
-                        // ลองทั้งแบบ Y ปกติ และแบบกลับด้าน (TMS)
+                        const y = tileCoord[2];
                         const key1 = `${z}/${x}/${y}`;
                         const key2 = `${z}/${x}/${-y-1}`;
-                        
                         return localTileUrls.get(key1) || localTileUrls.get(key2) || '';
                     },
                     maxZoom: 22
@@ -229,24 +233,14 @@
             
             map.addLayer(droneLayer);
             updateUI();
-            
-            // ซูมไปหาถ้าเป็นไปได้ (สุ่มเช็คตำแหน่งไฟล์แรก)
-            if (localTileUrls.size > 0) {
-                console.log(`Loaded ${localTileUrls.size} tiles locally.`);
-            }
         });
 
-        // 2. โหลดจาก Server (HTTP)
         function loadRemoteTiles() {
             const url = prompt("ระบุ URL ของ Tiles (เช่น http://localhost:8080/tiles/{z}/{x}/{y}.png)", "tiles/{z}/{x}/{y}.png");
             if (!url) return;
-
             if (droneLayer) map.removeLayer(droneLayer);
             droneLayer = new ol.layer.Tile({
-                source: new ol.source.XYZ({
-                    url: url,
-                    crossOrigin: 'anonymous'
-                }),
+                source: new ol.source.XYZ({ url: url, crossOrigin: 'anonymous' }),
                 zIndex: 5
             });
             map.addLayer(droneLayer);
@@ -281,23 +275,53 @@
             document.getElementById('loader').style.display = 'none';
         });
 
-        // --- Utilities ---
-        function toggleMeasure() {
-            isMeasuring = !isMeasuring;
-            const btn = document.getElementById('measureBtn');
+        // --- Advanced Measurement (Fixed units & Area) ---
+        function toggleMeasure(type) {
+            // If clicking same type, turn off
+            if (activeMeasureType === type) {
+                activeMeasureType = null;
+            } else {
+                activeMeasureType = type;
+            }
+
+            const btnLine = document.getElementById('measureLineBtn');
+            const btnArea = document.getElementById('measureAreaBtn');
+            
             map.removeInteraction(drawInteraction);
             measureSource.clear();
-            if (isMeasuring) {
-                btn.classList.add('active');
-                drawInteraction = new ol.interaction.Draw({ source: measureSource, type: 'LineString' });
+            btnLine.classList.remove('active');
+            btnArea.classList.remove('active');
+
+            if (activeMeasureType) {
+                if (activeMeasureType === 'LineString') btnLine.classList.add('active');
+                if (activeMeasureType === 'Polygon') btnArea.classList.add('active');
+
+                drawInteraction = new ol.interaction.Draw({
+                    source: measureSource,
+                    type: activeMeasureType
+                });
+
                 drawInteraction.on('drawend', (e) => {
-                    const length = ol.sphere.getLength(e.feature.getGeometry());
-                    document.getElementById('coordDisplay').textContent = `ระยะ: ${(length).toFixed(2)} ม.`;
+                    if (activeMeasureType === 'LineString') {
+                        const length = ol.sphere.getLength(e.feature.getGeometry());
+                        let output;
+                        if (length > 1000) {
+                            output = (length / 1000).toFixed(2) + ' กม.';
+                        } else {
+                            output = length.toFixed(2) + ' ม.';
+                        }
+                        document.getElementById('coordDisplay').textContent = `ระยะ: ${output}`;
+                    } else if (activeMeasureType === 'Polygon') {
+                        const area = ol.sphere.getArea(e.feature.getGeometry());
+                        const output = formatThaiArea(area);
+                        document.getElementById('coordDisplay').textContent = `พื้นที่: ${output}`;
+                    }
                 });
                 map.addInteraction(drawInteraction);
-            } else btn.classList.remove('active');
+            }
         }
 
+        // --- Search & UI ---
         function handleSearch(val) {
             const resDiv = document.getElementById('searchResults');
             if (!val || val.length < 2) { resDiv.classList.add('hidden'); return; }
@@ -335,10 +359,7 @@
             document.getElementById('parcelDisplay').textContent = code;
             document.getElementById('layerSource').textContent = obj.layerName;
             const area = ol.sphere.getArea(obj.feature.getGeometry());
-            const rai = Math.floor(area / 1600);
-            const ngan = Math.floor((area % 1600) / 400);
-            const wa = ((area % 400) / 4).toFixed(1);
-            document.getElementById('areaDisplay').textContent = `${rai}-${ngan}-${wa} ไร่`;
+            document.getElementById('areaDisplay').textContent = formatThaiArea(area);
             document.getElementById('navBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${obj.coord[1]},${obj.coord[0]}`, '_blank');
             const panel = document.getElementById('resultPanel');
             panel.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
