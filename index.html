@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบตรวจสอบแปลงที่ดิน Pro (OpenLayers - SW Style)</title>
+    <title>ระบบตรวจสอบแปลงที่ดิน Pro (Visual Fixed)</title>
     
     <!-- Dependencies -->
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
@@ -14,100 +14,99 @@
     <script src="https://cdn.jsdelivr.net/npm/ol@v10.3.1/dist/ol.js"></script>
     
     <style>
-        :root { --primary: #0f172a; --accent: #3b82f6; }
-        body { -webkit-tap-highlight-color: transparent; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Prompt:wght@300;400;600&display=swap');
+
+        :root { 
+            --ai-blue: #3b82f6; 
+            --ai-dark: #0f172a;
+            --glass-bg: rgba(255, 255, 255, 0.85);
+        }
+
+        body { 
+            font-family: 'Prompt', sans-serif;
+            -webkit-tap-highlight-color: transparent; 
+        }
+
         #map { height: calc(100vh - 280px); width: 100%; background: #1a1a1a; position: relative; }
         @media (min-width: 768px) { #map { height: calc(100vh - 200px); } }
-        
-        .layer-item { font-size: 0.7rem; padding: 4px 10px; border-radius: 99px; background: #fff; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .drone-badge { background: #fffbeb; color: #92400e; border-color: #fde68a; }
-        .geojson-badge { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
-        
-        .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; color: white; backdrop-filter: blur(4px); }
-        
-        .map-btn { background: white; width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.15); margin-bottom: 8px; cursor: pointer; font-size: 1.2rem; transition: all 0.2s; }
-        .map-btn:active { transform: scale(0.9); }
-        .map-btn.active { background: #3b82f6; color: white; }
 
-        /* ปรับแต่งเป้าเล็ง (Crosshair) */
-        #crosshair {
-            position: absolute;
-            left: 50%;
-            bottom: 65%; 
-            transform: translate(-50%, 50%);
-            z-index: 500;
-            pointer-events: none;
-            display: none;
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
         }
-        #crosshair svg { filter: drop-shadow(0 0 3px rgba(0,0,0,0.8)); }
+
+        /* AI Modern Buttons */
+        .ai-tool-btn {
+            width: 48px; height: 48px; border-radius: 16px;
+            display: flex; align-items: center; justify-content: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: white; color: var(--ai-dark);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            cursor: pointer;
+        }
+        .ai-tool-btn.active {
+            background: var(--ai-blue); color: white;
+            box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);
+        }
+
+        /* ปุ่มตำแหน่งปัจจุบันสไตล์ Google Maps */
+        .my-location-btn {
+            width: 50px; height: 50px; border-radius: 50%;
+            background: white; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3); cursor: pointer;
+        }
+        .my-location-btn svg { width: 24px; height: 24px; fill: #4285F4; }
+
+        /* ปุ่มเพิ่มจุด (Add Point) */
+        .ai-fab-add {
+            width: 64px; height: 64px; border-radius: 20px;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 10px 25px rgba(37, 99, 235, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        .ai-fab-add svg { width: 32px; height: 32px; stroke: white; stroke-width: 3; }
+
+        #crosshair {
+            position: absolute; left: 50%; bottom: 65%; 
+            transform: translate(-50%, 50%); z-index: 500;
+            pointer-events: none; display: none;
+        }
 
         .draw-controls {
-            position: absolute;
-            bottom: 24px;
-            right: 24px;
-            z-index: 1000;
-            display: none;
-            flex-direction: column;
-            gap: 12px;
+            position: absolute; bottom: 30px; right: 30px;
+            z-index: 1000; display: none; flex-direction: column;
+            align-items: center; gap: 16px;
         }
-
-        .ol-zoom { display: none; }
-        .ol-attribution { font-size: 8px; }
     </style>
 </head>
-<body class="bg-slate-50 font-sans overflow-x-hidden text-slate-900">
+<body class="bg-slate-50 overflow-x-hidden text-slate-900">
 
-    <div id="loader" class="loading-overlay">
-        <div class="relative w-16 h-16 mb-4">
-            <div class="absolute inset-0 rounded-full border-4 border-slate-700"></div>
-            <div class="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
-        </div>
-        <p class="font-bold text-lg">กำลังประมวลผล...</p>
-    </div>
-
-    <header class="bg-slate-900 text-white p-3 shadow-lg sticky top-0 z-[1001]">
+    <header class="bg-slate-900/95 backdrop-blur-md text-white p-4 shadow-xl sticky top-0 z-[1001] border-b border-white/10">
         <div class="container mx-auto flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <span class="text-xl">🛰️</span>
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-blue-500 rounded-lg">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"></path></svg>
+                </div>
                 <div>
-                    <h1 class="text-sm md:text-base font-black leading-none">วัดที่ดิน by.lekgis</h1>
-                    <p class="text-[9px] text-slate-400 tracking-widest uppercase">แอปวัดที่ดิน ไร่-งาน-วา โดย อ.เล็ก</p>
+                    <h1 class="text-sm font-black tracking-tight">PARCEL VISUAL FIX</h1>
+                    <p class="text-[9px] text-blue-400 font-bold tracking-widest uppercase">Node & Label Refined</p>
                 </div>
             </div>
-            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-blue-300">
-                Ready
+            <div id="coordDisplay" class="text-[11px] font-mono bg-white/5 px-4 py-2 rounded-xl border border-white/10 text-blue-300">
+                SYSTEM READY
             </div>
         </div>
     </header>
 
-    <div class="p-3 bg-white shadow-sm border-b flex flex-col gap-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="relative">
-                <label class="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-1 mb-1">
-                    <span>📁</span> ไฟล์แปลงที่ดิน (parcel.geojson)
-                </label>
-                <input type="file" id="geojsonInput" accept=".geojson,.json" multiple
-                       class="block w-full text-[10px] text-slate-500 border rounded-xl p-1 bg-slate-50"/>
-            </div>
-
-            <div class="relative">
-                <div class="flex justify-between items-center mb-1">
-                    <label class="text-[10px] font-bold text-orange-600 uppercase flex items-center gap-1">
-                        <span>🚁</span> ภาพถ่ายโดรน (Tiles Folder)
-                    </label>
-                    <button onclick="loadRemoteTiles()" class="text-[9px] bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">
-                        LOAD FROM SERVER
-                    </button>
-                </div>
-                <input type="file" id="folderInput" webkitdirectory directory
-                       class="block w-full text-[10px] text-slate-500 border rounded-xl p-1 bg-slate-50"/>
-            </div>
+    <div class="p-4 glass-panel border-b flex flex-col gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <input type="file" id="geojsonInput" accept=".geojson,.json" multiple class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-blue-50 file:text-blue-700"/>
+            <input type="file" id="folderInput" webkitdirectory directory class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-indigo-50 file:text-indigo-700"/>
         </div>
-
-        <div class="flex items-center justify-between gap-2 overflow-hidden">
-            <div id="layerList" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
-            <button onclick="clearAll()" class="text-[10px] font-bold text-red-500 px-2 py-1 hover:bg-red-50 rounded">ล้างข้อมูล</button>
-        </div>
+        <div id="layerList" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
     </div>
 
     <div class="relative">
@@ -116,462 +115,254 @@
                 <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <circle cx="50" cy="50" r="2.5" fill="white"/>
                     <circle cx="50" cy="50" r="26" stroke="white" stroke-width="3"/>
-                    <path d="M50 0V24" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <path d="M50 76V100" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <path d="M0 50H24" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <path d="M76 50H100" stroke="white" stroke-width="3" stroke-linecap="round"/>
+                    <path d="M50 0V24M50 76V100M0 50H24M76 50H100" stroke="white" stroke-width="3" stroke-linecap="round"/>
                 </svg>
             </div>
         </div>
         
-        <!-- Main Controls -->
-        <div class="absolute top-4 left-4 z-[1000] flex flex-col">
-            <div onclick="getCurrentLocation()" class="map-btn" title="ตำแหน่งปัจจุบัน">📍</div>
-            <div id="measureLineBtn" onclick="toggleMeasure('LineString')" class="map-btn" title="วัดระยะทาง">📏</div>
-            <div id="measureAreaBtn" onclick="toggleMeasure('Polygon')" class="map-btn" title="วัดพื้นที่">📐</div>
+        <div class="absolute top-6 left-6 z-[1000] flex flex-col gap-4">
+            <div onclick="getCurrentLocation()" class="my-location-btn">
+                <svg viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
+            </div>
+
+            <div class="flex flex-col gap-2 p-1.5 glass-panel rounded-2xl">
+                <div id="measureLineBtn" onclick="toggleMeasure('LineString')" class="ai-tool-btn">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                </div>
+                <div id="measureAreaBtn" onclick="toggleMeasure('Polygon')" class="ai-tool-btn">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5v14M15 5v14"></path></svg>
+                </div>
+            </div>
         </div>
 
-        <!-- Draw Controls -->
         <div id="drawControls" class="draw-controls">
-            <button onclick="undoPoint()" class="map-btn bg-white text-slate-700 shadow-xl" title="ย้อนกลับ">↩️</button>
-            <button onclick="addPointAtCrosshair()" class="map-btn bg-blue-600 text-white shadow-xl scale-125 mb-4" title="เพิ่มจุด">➕</button>
-        </div>
-
-        <div class="absolute top-4 right-4 z-[1000] w-48 md:w-64">
-            <input type="text" onkeyup="handleSearch(this.value)" placeholder="ค้นหารหัสแปลง..." 
-                   class="w-full bg-white/90 backdrop-blur shadow-lg border-0 rounded-xl px-4 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500">
-            <div id="searchResults" class="mt-1 bg-white rounded-lg shadow-xl max-h-40 overflow-y-auto hidden"></div>
-        </div>
-    </div>
-
-    <!-- Result Panel -->
-    <div id="resultPanel" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1001] w-[90%] max-w-sm bg-white p-5 rounded-3xl shadow-2xl border border-slate-100 transition-all transform translate-y-20 opacity-0 pointer-events-none">
-        <div class="flex justify-between items-start mb-2">
-            <div>
-                <h3 class="text-blue-600 text-[10px] font-black uppercase">Information</h3>
-                <div id="parcelDisplay" class="text-2xl font-black text-slate-800 break-all leading-tight mt-1">----</div>
-            </div>
-            <button onclick="closePanel()" class="bg-slate-100 p-2 rounded-full text-slate-500">✕</button>
-        </div>
-        <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
-            <div>
-                <p class="text-[9px] text-slate-400 uppercase font-bold">พื้นที่</p>
-                <p id="areaDisplay" class="text-sm font-bold text-slate-700">-</p>
-            </div>
-            <div>
-                <p class="text-[9px] text-slate-400 uppercase font-bold">ไฟล์</p>
-                <p id="layerSource" class="text-[10px] font-medium text-slate-600 truncate">-</p>
-            </div>
-        </div>
-        <div class="mt-4 flex gap-2">
-            <button onclick="copyCode()" class="flex-1 bg-slate-900 text-white text-[10px] font-bold py-2.5 rounded-xl">คัดลอกรหัส</button>
-            <button id="navBtn" class="flex-1 bg-blue-50 text-blue-600 text-[10px] font-bold py-2.5 rounded-xl">นำทาง</button>
+            <button onclick="undoPoint()" class="w-12 h-12 rounded-2xl bg-white flex items-center justify-center shadow-lg" title="ย้อนกลับ">
+                <svg class="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path></svg>
+            </button>
+            <button onclick="addPointAtCrosshair()" class="ai-fab-add">
+                <svg fill="none" viewBox="0 0 24 24" stroke="white"><path d="M12 4v16m8-8H4" /></svg>
+            </button>
         </div>
     </div>
 
     <script>
         let map, droneLayer, vectorLayers = [];
         let measureSource, measureVector, draftSource, draftVector;
-        let activeMeasureType = null; 
-        const localTileUrls = new Map();
+        let activeMeasureType = null;
 
-        const createLabelStyle = (text, rotation = 0) => {
+        // --- STYLING CONSTANTS ---
+        const NODE_STYLE = new ol.style.Style({
+            image: new ol.style.Circle({
+                radius: 6,
+                fill: new ol.style.Fill({ color: '#ffffff' }),
+                stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2 })
+            })
+        });
+
+        const DRAFT_LINE_STYLE = new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: '#ffffff',
+                width: 3,
+                lineDash: [10, 10]
+            })
+        });
+
+        const createLabelStyle = (text) => {
             return new ol.style.Text({
                 text: text,
-                font: 'bold 13px Prompt, sans-serif',
-                fill: new ol.style.Fill({ color: '#3b82f6' }), 
+                font: 'bold 14px Prompt, sans-serif',
+                fill: new ol.style.Fill({ color: '#3b82f6' }),
                 stroke: new ol.style.Stroke({ color: '#ffffff', width: 4 }),
-                offsetY: -12,
-                textAlign: 'center',
-                rotation: rotation
+                offsetY: -15
             });
         };
 
-        const measureStyle = function(feature) {
+        const measureStyle = (feature) => {
+            const geom = feature.getGeometry();
             const styles = [
                 new ol.style.Style({
-                    stroke: new ol.style.Stroke({ color: '#3b82f6', width: 3 }),
-                    fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.2)' }),
-                    image: new ol.style.Circle({ 
-                        radius: 6, 
-                        fill: new ol.style.Fill({ color: '#3b82f6' }), 
-                        stroke: new ol.style.Stroke({color: '#fff', width: 2}) 
-                    })
+                    stroke: new ol.style.Stroke({ color: '#3b82f6', width: 4 }),
+                    fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.2)' })
                 })
             ];
 
-            const geometry = feature.getGeometry();
-            const type = geometry.getType();
+            // วาด Node สีขาวในทุกจุด
+            if (geom.getType() === 'LineString') {
+                geom.getCoordinates().forEach(coord => {
+                    styles.push(new ol.style.Style({
+                        geometry: new ol.geom.Point(coord),
+                        image: NODE_STYLE.getImage()
+                    }));
+                });
 
-            if (type === 'LineString') {
-                const coordinates = geometry.getCoordinates();
-                for (let i = 0; i < coordinates.length - 1; i++) {
-                    const start = coordinates[i];
-                    const end = coordinates[i + 1];
-                    const midpoint = [(start[0] + end[0]) / 2, (start[1] + end[1]) / 2];
-                    const segmentGeom = new ol.geom.LineString([start, end]);
-                    const length = ol.sphere.getLength(segmentGeom);
-                    const label = length > 1000 ? (length / 1000).toFixed(2) + ' กม.' : length.toFixed(2) + ' ม.';
-                    const dx = end[0] - start[0];
-                    const dy = end[1] - start[1];
-                    let rotation = Math.atan2(dy, dx);
-                    if (rotation > Math.PI / 2 || rotation < -Math.PI / 2) rotation += Math.PI;
-
+                // วาดป้ายระยะทาง
+                const coords = geom.getCoordinates();
+                for (let i = 0; i < coords.length - 1; i++) {
+                    const midpoint = [(coords[i][0] + coords[i+1][0]) / 2, (coords[i][1] + coords[i+1][1]) / 2];
+                    const len = ol.sphere.getLength(new ol.geom.LineString([coords[i], coords[i+1]]));
                     styles.push(new ol.style.Style({
                         geometry: new ol.geom.Point(midpoint),
-                        text: createLabelStyle(label, -rotation)
+                        text: createLabelStyle(len > 1000 ? (len/1000).toFixed(2)+' กม.' : len.toFixed(1)+' ม.')
                     }));
                 }
-            } else if (type === 'Polygon') {
-                const area = ol.sphere.getArea(geometry);
-                const label = formatThaiArea(area);
-                const labelPoint = geometry.getInteriorPoint();
+            } else if (geom.getType() === 'Polygon') {
+                geom.getCoordinates()[0].forEach(coord => {
+                    styles.push(new ol.style.Style({
+                        geometry: new ol.geom.Point(coord),
+                        image: NODE_STYLE.getImage()
+                    }));
+                });
+
                 styles.push(new ol.style.Style({
-                    geometry: labelPoint,
-                    text: createLabelStyle(label, 0)
+                    geometry: geom.getInteriorPoint(),
+                    text: createLabelStyle(formatThaiArea(ol.sphere.getArea(geom)))
                 }));
             }
             return styles;
         };
 
-        const draftStyle = new ol.style.Style({
-            stroke: new ol.style.Stroke({
-                color: 'rgba(255, 255, 255, 0.8)',
-                width: 2,
-                lineDash: [8, 8]
-            })
-        });
-
         function init() {
-            const lastPos = JSON.parse(localStorage.getItem('ol_pos') || '{"lon":103.057069,"lat":15.418727,"zoom":16}');
-
-            const googleLayer = new ol.layer.Tile({
-                source: new ol.source.XYZ({
-                    url: 'https://mt{0-3}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-                    maxZoom: 22
-                })
-            });
-
-            measureSource = new ol.source.Vector();
-            measureVector = new ol.layer.Vector({
-                source: measureSource,
-                style: measureStyle,
-                zIndex: 100
-            });
-
-            draftSource = new ol.source.Vector();
-            draftVector = new ol.layer.Vector({
-                source: draftSource,
-                style: draftStyle,
-                zIndex: 90
-            });
+            const lastPos = JSON.parse(localStorage.getItem('ol_pos_vfix') || '{"lon":103.057069,"lat":15.418727,"zoom":16}');
 
             map = new ol.Map({
                 target: 'map',
-                layers: [googleLayer, draftVector, measureVector],
-                view: new ol.View({
-                    center: ol.proj.fromLonLat([lastPos.lon, lastPos.lat]),
-                    zoom: lastPos.zoom,
-                    maxZoom: 24
-                })
+                layers: [
+                    new ol.layer.Tile({ source: new ol.source.XYZ({ url: 'https://mt{0-3}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', maxZoom: 22 }) }),
+                    draftVector = new ol.layer.Vector({ source: new ol.source.Vector(), style: DRAFT_LINE_STYLE, zIndex: 90 }),
+                    measureVector = new ol.layer.Vector({ source: new ol.source.Vector(), style: measureStyle, zIndex: 100 })
+                ],
+                view: new ol.View({ center: ol.proj.fromLonLat([lastPos.lon, lastPos.lat]), zoom: lastPos.zoom, maxZoom: 24 })
             });
 
-            map.on('singleclick', function(evt) {
-                if (activeMeasureType) return;
-                const coordinate = ol.proj.toLonLat(evt.coordinate);
-                document.getElementById('coordDisplay').textContent = `${coordinate[1].toFixed(6)}, ${coordinate[0].toFixed(6)}`;
-                let found = null;
-                map.forEachFeatureAtPixel(evt.pixel, function(feature, layer) {
-                    if (found) return;
-                    if (layer && layer.get('isParcel')) {
-                        found = { feature, layerName: layer.get('name'), coord: coordinate };
-                    }
-                });
-                if (found) showInfo(found); else closePanel();
-            });
+            measureSource = measureVector.getSource();
+            draftSource = draftVector.getSource();
 
             map.on('moveend', () => {
-                const view = map.getView();
-                const center = ol.proj.toLonLat(view.getCenter());
-                localStorage.setItem('ol_pos', JSON.stringify({ lon: center[0], lat: center[1], zoom: view.getZoom() }));
+                const v = map.getView();
+                const c = ol.proj.toLonLat(v.getCenter());
+                localStorage.setItem('ol_pos_vfix', JSON.stringify({ lon: c[0], lat: c[1], zoom: v.getZoom() }));
                 updateDraftLine();
             });
-
             map.getView().on('change:center', updateDraftLine);
         }
 
         function getCrosshairMapCoordinate() {
             const size = map.getSize();
-            const pixel = [size[0] / 2, size[1] * 0.35]; 
-            return map.getCoordinateFromPixel(pixel);
+            return map.getCoordinateFromPixel([size[0] / 2, size[1] * 0.35]);
         }
 
         function updateDraftLine() {
             if (!activeMeasureType) return;
             draftSource.clear();
-
             const features = measureSource.getFeatures();
-            if (features.length === 0) return;
+            if (!features.length) return;
 
-            const feature = features[0];
-            const geom = feature.getGeometry();
-            const crosshairCoord = getCrosshairMapCoordinate();
+            const crosshair = getCrosshairMapCoordinate();
+            const geom = features[0].getGeometry();
 
             if (activeMeasureType === 'LineString') {
                 const coords = geom.getCoordinates();
-                const lastCoord = coords[coords.length - 1];
-                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([lastCoord, crosshairCoord])));
+                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([coords[coords.length - 1], crosshair])));
             } else if (activeMeasureType === 'Polygon') {
                 const ring = geom.getCoordinates()[0];
-                // จุดแรกของรูป
-                const firstCoord = ring[0];
-                // จุดสุดท้ายที่วาดเสร็จแล้ว (ก่อนถึงตัวปิดวง)
-                const lastCoord = ring[ring.length - 2]; 
-
-                // วาดเส้นประจากจุดสุดท้ายไปยังเป้า
-                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([lastCoord, crosshairCoord])));
-                
-                // หากมีจุดมากกว่า 2 จุดขึ้นไป (เริ่มเป็นรูปทรง) ให้วาดเส้นประจากเป้ากลับไปยังจุดแรกด้วย (Closed Loop)
+                // เส้นจากจุดล่าสุด -> เป้า
+                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([ring[ring.length - 2], crosshair])));
+                // เส้นจากเป้า -> จุดเริ่ม (รูปปิด)
                 if (ring.length > 3) {
-                    draftSource.addFeature(new ol.Feature(new ol.geom.LineString([crosshairCoord, firstCoord])));
+                    draftSource.addFeature(new ol.Feature(new ol.geom.LineString([crosshair, ring[0]])));
                 }
             }
         }
 
         function addPointAtCrosshair() {
-            const crosshairCoord = getCrosshairMapCoordinate();
+            const crosshair = getCrosshairMapCoordinate();
             const features = measureSource.getFeatures();
-            
+
             if (features.length > 0) {
-                const feature = features[0];
-                const geom = feature.getGeometry();
-                
+                const geom = features[0].getGeometry();
                 if (activeMeasureType === 'LineString') {
-                    const coords = geom.getCoordinates();
-                    coords.push(crosshairCoord);
-                    geom.setCoordinates(coords);
-                } else if (activeMeasureType === 'Polygon') {
-                    const ring = geom.getCoordinates()[0];
-                    // แทรกจุดใหม่ก่อนจุดสุดท้าย (ซึ่งเป็นจุดปิดที่เชื่อมกับจุดเริ่ม)
-                    ring.splice(ring.length - 1, 0, crosshairCoord);
-                    geom.setCoordinates([ring]);
+                    const c = geom.getCoordinates(); c.push(crosshair); geom.setCoordinates(c);
+                } else {
+                    const r = geom.getCoordinates()[0]; r.splice(r.length - 1, 0, crosshair); geom.setCoordinates([r]);
                 }
             } else {
-                let newFeature;
-                if (activeMeasureType === 'LineString') {
-                    newFeature = new ol.Feature(new ol.geom.LineString([crosshairCoord, crosshairCoord]));
-                } else {
-                    // สร้าง Polygon เริ่มต้น 3 จุดที่ตำแหน่งเดียวกัน (จุดเริ่ม, จุดวาด, จุดปิด)
-                    newFeature = new ol.Feature(new ol.geom.Polygon([[crosshairCoord, crosshairCoord, crosshairCoord]]));
-                }
-                measureSource.addFeature(newFeature);
+                const feat = activeMeasureType === 'LineString' 
+                    ? new ol.Feature(new ol.geom.LineString([crosshair, crosshair]))
+                    : new ol.Feature(new ol.geom.Polygon([[crosshair, crosshair, crosshair]]));
+                measureSource.addFeature(feat);
             }
-            updateMeasureResult();
             updateDraftLine();
+            updateStatus();
         }
 
         function undoPoint() {
-            const features = measureSource.getFeatures();
-            if (features.length === 0) return;
-            const feature = features[0];
-            const geom = feature.getGeometry();
-            
+            const feats = measureSource.getFeatures();
+            if (!feats.length) return;
+            const geom = feats[0].getGeometry();
             if (activeMeasureType === 'LineString') {
-                const coords = geom.getCoordinates();
-                if (coords.length > 2) {
-                    coords.pop();
-                    geom.setCoordinates(coords);
-                } else {
-                    measureSource.removeFeature(feature);
-                }
+                const c = geom.getCoordinates(); 
+                if (c.length > 2) { c.pop(); geom.setCoordinates(c); } else measureSource.clear();
             } else {
-                const ring = geom.getCoordinates()[0];
-                if (ring.length > 4) {
-                    ring.splice(ring.length - 2, 1);
-                    geom.setCoordinates([ring]);
-                } else {
-                    measureSource.removeFeature(feature);
-                }
+                const r = geom.getCoordinates()[0];
+                if (r.length > 4) { r.splice(r.length - 2, 1); geom.setCoordinates([r]); } else measureSource.clear();
             }
-            updateMeasureResult();
             updateDraftLine();
-        }
-
-        function updateMeasureResult() {
-            const features = measureSource.getFeatures();
-            if (features.length === 0) return;
-            const geom = features[0].getGeometry();
-            if (activeMeasureType === 'LineString') {
-                const len = ol.sphere.getLength(geom);
-                document.getElementById('coordDisplay').textContent = len > 1000 ? (len/1000).toFixed(2)+' กม.' : len.toFixed(2)+' ม.';
-            } else {
-                const area = ol.sphere.getArea(geom);
-                document.getElementById('coordDisplay').textContent = formatThaiArea(area);
-            }
+            updateStatus();
         }
 
         function toggleMeasure(type) {
-            const btnLine = document.getElementById('measureLineBtn');
-            const btnArea = document.getElementById('measureAreaBtn');
-            const crosshair = document.getElementById('crosshair');
-            const drawCtrl = document.getElementById('drawControls');
-            
-            measureSource.clear();
-            draftSource.clear();
-            document.getElementById('coordDisplay').textContent = 'Ready';
+            const lineBtn = document.getElementById('measureLineBtn');
+            const areaBtn = document.getElementById('measureAreaBtn');
+            const cross = document.getElementById('crosshair');
+            const ctrl = document.getElementById('drawControls');
 
+            measureSource.clear(); draftSource.clear();
             if (activeMeasureType === type) {
                 activeMeasureType = null;
-                btnLine.classList.remove('active');
-                btnArea.classList.remove('active');
-                crosshair.style.display = 'none';
-                drawCtrl.style.display = 'none';
+                lineBtn.classList.remove('active'); areaBtn.classList.remove('active');
+                cross.style.display = 'none'; ctrl.style.display = 'none';
                 return;
             }
-
             activeMeasureType = type;
-            btnLine.classList.remove('active');
-            btnArea.classList.remove('active');
-            crosshair.style.display = 'block';
-            drawCtrl.style.display = 'flex';
-
-            if (activeMeasureType === 'LineString') btnLine.classList.add('active');
-            if (activeMeasureType === 'Polygon') btnArea.classList.add('active');
+            lineBtn.classList.toggle('active', type === 'LineString');
+            areaBtn.classList.toggle('active', type === 'Polygon');
+            cross.style.display = 'block'; ctrl.style.display = 'flex';
         }
 
-        function formatThaiArea(areaSqm) {
-            const rai = Math.floor(areaSqm / 1600);
-            const ngan = Math.floor((areaSqm % 1600) / 400);
-            const wa = ((areaSqm % 400) / 4).toFixed(1);
-            return `${rai}-${ngan}-${wa} ไร่`;
+        function updateStatus() {
+            const f = measureSource.getFeatures();
+            if (!f.length) { document.getElementById('coordDisplay').textContent = "READY"; return; }
+            const g = f[0].getGeometry();
+            const val = activeMeasureType === 'LineString' ? ol.sphere.getLength(g) : ol.sphere.getArea(g);
+            document.getElementById('coordDisplay').textContent = activeMeasureType === 'LineString' 
+                ? (val > 1000 ? (val/1000).toFixed(2) + ' KM' : val.toFixed(1) + ' M')
+                : formatThaiArea(val);
         }
 
-        document.getElementById('folderInput').addEventListener('change', function(e) {
-            const files = Array.from(e.target.files);
-            if (files.length === 0) return;
-            localTileUrls.clear();
-            files.forEach(file => {
-                const parts = file.webkitRelativePath.split('/');
-                const len = parts.length;
-                if (len >= 3) {
-                    const z = parts[len-3], x = parts[len-2], y = parts[len-1].split('.')[0];
-                    if (!isNaN(z) && !isNaN(x) && !isNaN(y)) localTileUrls.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
-                }
-            });
-            if (droneLayer) map.removeLayer(droneLayer);
-            droneLayer = new ol.layer.Tile({
-                source: new ol.source.XYZ({
-                    tileUrlFunction: function(tileCoord) {
-                        const z = tileCoord[0], x = tileCoord[1], y = tileCoord[2];
-                        return localTileUrls.get(`${z}/${x}/${y}`) || localTileUrls.get(`${z}/${x}/${-y-1}`) || '';
-                    },
-                    maxZoom: 22
-                }),
-                zIndex: 5
-            });
-            map.addLayer(droneLayer);
-            updateUI();
-        });
-
-        function loadRemoteTiles() {
-            const url = prompt("ระบุ URL ของ Tiles", "tiles/{z}/{x}/{y}.png");
-            if (!url) return;
-            if (droneLayer) map.removeLayer(droneLayer);
-            droneLayer = new ol.layer.Tile({ source: new ol.source.XYZ({ url: url, crossOrigin: 'anonymous' }), zIndex: 5 });
-            map.addLayer(droneLayer);
-            updateUI();
-        }
-
-        document.getElementById('geojsonInput').addEventListener('change', async function(e) {
-            const files = Array.from(e.target.files);
-            document.getElementById('loader').style.display = 'flex';
-            for (const f of files) {
-                try {
-                    const text = await f.text();
-                    const data = JSON.parse(text);
-                    const source = new ol.source.Vector({ features: new ol.format.GeoJSON().readFeatures(data, { featureProjection: 'EPSG:3857' }) });
-                    const layer = new ol.layer.Vector({
-                        source: source,
-                        style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2 }), fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.15)' }) }),
-                        properties: { isParcel: true, name: f.name }
-                    });
-                    map.addLayer(layer);
-                    vectorLayers.push(layer);
-                    if (vectorLayers.length === 1) map.getView().fit(source.getExtent(), { padding: [50, 50, 50, 50], duration: 1000 });
-                } catch(err) { console.error(err); }
-            }
-            updateUI();
-            document.getElementById('loader').style.display = 'none';
-        });
-
-        function handleSearch(val) {
-            const resDiv = document.getElementById('searchResults');
-            if (!val || val.length < 2) { resDiv.classList.add('hidden'); return; }
-            let results = [];
-            vectorLayers.forEach(l => {
-                l.getSource().getFeatures().forEach(f => {
-                    const code = String(f.getProperties().parcel_cod || f.getProperties().Parcel_cod || f.getProperties().id || '');
-                    if (code.toLowerCase().includes(val.toLowerCase())) results.push({ code, feature: f });
-                });
-            });
-            if (results.length) {
-                resDiv.innerHTML = results.slice(0, 5).map(r => `<div onclick="focusParcel('${r.code}')" class="p-2 hover:bg-slate-100 cursor-pointer text-xs border-b">📍 ${r.code}</div>`).join('');
-                resDiv.classList.remove('hidden');
-            } else resDiv.classList.add('hidden');
-        }
-
-        window.focusParcel = (code) => {
-            document.getElementById('searchResults').classList.add('hidden');
-            vectorLayers.forEach(l => {
-                l.getSource().getFeatures().forEach(f => {
-                    const c = String(f.getProperties().parcel_cod || f.getProperties().Parcel_cod || f.getProperties().id || '');
-                    if (c === code) {
-                        const extent = f.getGeometry().getExtent();
-                        map.getView().fit(extent, { padding: [100, 100, 100, 100], duration: 1000 });
-                        showInfo({ feature: f, layerName: l.get('name'), coord: ol.proj.toLonLat(ol.extent.getCenter(extent)) });
-                    }
-                });
-            });
-        };
-
-        function showInfo(obj) {
-            const p = obj.feature.getProperties();
-            document.getElementById('parcelDisplay').textContent = p.parcel_cod || p.Parcel_cod || p.id || 'N/A';
-            document.getElementById('layerSource').textContent = obj.layerName;
-            document.getElementById('areaDisplay').textContent = formatThaiArea(ol.sphere.getArea(obj.feature.getGeometry()));
-            document.getElementById('navBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${obj.coord[1]},${obj.coord[0]}`, '_blank');
-            const panel = document.getElementById('resultPanel');
-            panel.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
-            panel.classList.add('pointer-events-auto');
-        }
-
-        function closePanel() {
-            document.getElementById('resultPanel').classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
-        }
-
-        function updateUI() {
-            const container = document.getElementById('layerList');
-            const chips = vectorLayers.map(l => `<span class="layer-item geojson-badge">📄 ${l.get('name')}</span>`);
-            if (droneLayer) chips.push('<span class="layer-item drone-badge">🚁 Drone Tiles Active</span>');
-            container.innerHTML = chips.join('');
-        }
-
-        function clearAll() {
-            vectorLayers.forEach(l => map.removeLayer(l));
-            if (droneLayer) map.removeLayer(droneLayer);
-            vectorLayers = []; droneLayer = null;
-            updateUI(); closePanel();
-            measureSource.clear();
-            draftSource.clear();
+        function formatThaiArea(sqm) {
+            const r = Math.floor(sqm/1600), n = Math.floor((sqm%1600)/400), w = ((sqm%400)/4).toFixed(1);
+            return `${r}-${n}-${w} ไร่`;
         }
 
         function getCurrentLocation() {
-            navigator.geolocation.getCurrentPosition(pos => {
-                map.getView().animate({ center: ol.proj.fromLonLat([pos.coords.longitude, pos.coords.latitude]), zoom: 19 });
+            navigator.geolocation.getCurrentPosition(p => {
+                map.getView().animate({ center: ol.proj.fromLonLat([p.coords.longitude, p.coords.latitude]), zoom: 19 });
             });
         }
 
-        function copyCode() { navigator.clipboard.writeText(document.getElementById('parcelDisplay').textContent); }
+        document.getElementById('geojsonInput').addEventListener('change', async (e) => {
+            for (const f of e.target.files) {
+                const data = JSON.parse(await f.text());
+                const src = new ol.source.Vector({ features: new ol.format.GeoJSON().readFeatures(data, { featureProjection:'EPSG:3857' }) });
+                const layer = new ol.layer.Vector({
+                    source: src,
+                    style: new ol.style.Style({ stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2.5 }), fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.1)' }) }),
+                    properties: { isParcel: true, name: f.name }
+                });
+                map.addLayer(layer); vectorLayers.push(layer);
+            }
+        });
+
         window.onload = init;
     </script>
 </body>
