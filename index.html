@@ -3,223 +3,379 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบตรวจสอบแปลงที่ดิน (Mobile Friendly)</title>
-    <!-- Libraries -->
+    <title>ระบบตรวจสอบแปลงที่ดิน Pro (OpenLayers - Fixed)</title>
+    
+    <!-- Dependencies -->
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- OpenLayers -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.3.1/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@v10.3.1/dist/ol.js"></script>
     
     <style>
-        #map { height: calc(100vh - 280px); width: 100%; background: #000; cursor: crosshair; }
-        @media (min-width: 768px) {
-            #map { height: calc(100vh - 220px); }
-        }
-        .layer-item { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; background: #f3f4f6; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-        .drone-badge { background: #f59e0b; color: white; border-color: #d97706; }
-        .geojson-badge { background: #6366f1; color: white; border-color: #4f46e5; }
-        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; color: white; text-align: center; flex-direction: column; padding: 20px; }
+        :root { --primary: #0f172a; --accent: #3b82f6; }
+        body { -webkit-tap-highlight-color: transparent; }
+        #map { height: calc(100vh - 280px); width: 100%; background: #1a1a1a; }
+        @media (min-width: 768px) { #map { height: calc(100vh - 200px); } }
+        
+        .layer-item { font-size: 0.7rem; padding: 4px 10px; border-radius: 99px; background: #fff; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .drone-badge { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+        .geojson-badge { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+        
+        .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.9); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; color: white; backdrop-filter: blur(4px); }
+        
+        .map-btn { background: white; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.15); margin-bottom: 8px; cursor: pointer; font-size: 1.2rem; }
+        .map-btn:active { background: #f8fafc; transform: scale(0.95); }
+        .map-btn.active { background: #3b82f6; color: white; }
+
+        .ol-zoom { display: none; }
+        .ol-attribution { font-size: 8px; }
     </style>
 </head>
-<body class="bg-gray-50 font-sans overflow-x-hidden">
+<body class="bg-slate-50 font-sans overflow-x-hidden text-slate-900">
 
     <div id="loader" class="loading-overlay">
-        <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-white mb-4"></div>
-        <p class="font-bold text-lg text-white">กำลังประมวลผลข้อมูล...</p>
-        <p id="progressStatus" class="text-xs mt-2 text-gray-400"></p>
+        <div class="relative w-16 h-16 mb-4">
+            <div class="absolute inset-0 rounded-full border-4 border-slate-700"></div>
+            <div class="absolute inset-0 rounded-full border-4 border-blue-500 border-t-transparent animate-spin"></div>
+        </div>
+        <p class="font-bold text-lg">กำลังประมวลผล...</p>
     </div>
 
-    <header class="bg-slate-900 text-white p-3 shadow-xl">
+    <header class="bg-slate-900 text-white p-3 shadow-lg sticky top-0 z-[1001]">
         <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-sm md:text-lg font-bold flex items-center gap-2">
-                <span class="text-xl">🌍</span> ระบบตรวจสอบที่ดิน
-            </h1>
-            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-2 py-1 rounded border border-slate-700">แตะบนแผนที่</div>
+            <div class="flex items-center gap-2">
+                <span class="text-xl">🛰️</span>
+                <div>
+                    <h1 class="text-sm md:text-base font-black leading-none">PARCEL OL FIX</h1>
+                    <p class="text-[9px] text-slate-400 tracking-widest uppercase">Tile Support Enabled</p>
+                </div>
+            </div>
+            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-blue-300">
+                Ready
+            </div>
         </div>
     </header>
 
     <div class="p-3 bg-white shadow-sm border-b flex flex-col gap-3">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <!-- 1. นำเข้า GeoJSON -->
-            <div class="border-2 border-dashed border-indigo-200 rounded-xl p-2 hover:bg-indigo-50">
-                <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">1. ไฟล์แปลงที่ดิน (.geojson)</label>
+            <div class="relative">
+                <label class="text-[10px] font-bold text-indigo-600 uppercase flex items-center gap-1 mb-1">
+                    <span>📁</span> ไฟล์แปลงที่ดิน (.geojson)
+                </label>
                 <input type="file" id="geojsonInput" accept=".geojson,.json" multiple
-                       class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-indigo-600 file:text-white cursor-pointer"/>
+                       class="block w-full text-[10px] text-slate-500 border rounded-xl p-1 bg-slate-50"/>
             </div>
 
-            <!-- 2. นำเข้า Tiles -->
-            <div class="border-2 border-dashed border-orange-200 rounded-xl p-2 hover:bg-orange-50">
+            <div class="relative">
                 <div class="flex justify-between items-center mb-1">
-                    <label class="block text-[10px] font-bold text-orange-600 uppercase">2. ข้อมูลภาพโดรน (Tiles)</label>
-                    <button id="quickLoadBtn" onclick="loadFixedPathTiles()" class="text-[9px] bg-orange-500 text-white px-3 py-1 rounded-full font-bold hover:bg-orange-600 transition-all shadow-sm">
-                        ⚡ ดึงภาพอัตโนมัติ (Server Mode)
+                    <label class="text-[10px] font-bold text-orange-600 uppercase flex items-center gap-1">
+                        <span>🚁</span> ภาพถ่ายโดรน (Tiles Folder)
+                    </label>
+                    <button onclick="loadRemoteTiles()" class="text-[9px] bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">
+                        LOAD FROM SERVER
                     </button>
                 </div>
                 <input type="file" id="folderInput" webkitdirectory directory
-                       class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-gray-200 file:text-gray-700 cursor-pointer"/>
-                <p id="pathHint" class="text-[9px] text-gray-400 mt-1 italic leading-tight">หากรันผ่าน Server ระบบจะดึงภาพจากโฟลเดอร์ /tiles/ ให้ทันที</p>
+                       class="block w-full text-[10px] text-slate-500 border rounded-xl p-1 bg-slate-50"/>
             </div>
         </div>
-        
-        <div class="flex justify-between items-center overflow-x-auto pb-1">
-            <div id="layerList" class="flex gap-2"></div>
-            <button onclick="clearLayers()" class="text-[10px] font-bold text-red-500 ml-2 whitespace-nowrap">ล้างข้อมูล</button>
+
+        <div class="flex items-center justify-between gap-2 overflow-hidden">
+            <div id="layerList" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
+            <button onclick="clearAll()" class="text-[10px] font-bold text-red-500 px-2 py-1 hover:bg-red-50 rounded">ล้างข้อมูล</button>
         </div>
     </div>
 
-    <div id="map"></div>
-
-    <div id="resultPanel" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] w-[92%] max-w-sm bg-white p-4 rounded-2xl shadow-2xl border border-gray-100 hidden">
-        <div class="flex justify-between items-start mb-1">
-            <h3 class="text-gray-400 text-[9px] font-bold uppercase tracking-tight">รหัสแปลงที่ดิน</h3>
-            <button onclick="closePanel()" class="bg-gray-100 p-1.5 rounded-full text-gray-400">✕</button>
+    <div class="relative">
+        <div id="map"></div>
+        
+        <div class="absolute top-4 left-4 z-[1000] flex flex-col">
+            <div onclick="getCurrentLocation()" class="map-btn">📍</div>
+            <div id="measureBtn" onclick="toggleMeasure()" class="map-btn">📏</div>
         </div>
-        <div id="parcelDisplay" class="text-2xl font-black text-slate-800 break-all leading-tight">----</div>
-        <div id="layerSource" class="text-[9px] text-gray-400 mt-1 italic"></div>
+
+        <div class="absolute top-4 right-4 z-[1000] w-48 md:w-64">
+            <input type="text" onkeyup="handleSearch(this.value)" placeholder="ค้นหารหัสแปลง..." 
+                   class="w-full bg-white/90 backdrop-blur shadow-lg border-0 rounded-xl px-4 py-2 text-xs outline-none focus:ring-2 focus:ring-blue-500">
+            <div id="searchResults" class="mt-1 bg-white rounded-lg shadow-xl max-h-40 overflow-y-auto hidden"></div>
+        </div>
+    </div>
+
+    <!-- Result Panel -->
+    <div id="resultPanel" class="fixed bottom-8 left-1/2 -translate-x-1/2 z-[1001] w-[90%] max-w-sm bg-white p-5 rounded-3xl shadow-2xl border border-slate-100 transition-all transform translate-y-20 opacity-0 pointer-events-none">
+        <div class="flex justify-between items-start mb-2">
+            <div>
+                <h3 class="text-blue-600 text-[10px] font-black uppercase">Information</h3>
+                <div id="parcelDisplay" class="text-2xl font-black text-slate-800 break-all leading-tight mt-1">----</div>
+            </div>
+            <button onclick="closePanel()" class="bg-slate-100 p-2 rounded-full text-slate-500">✕</button>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
+            <div>
+                <p class="text-[9px] text-slate-400 uppercase font-bold">พื้นที่</p>
+                <p id="areaDisplay" class="text-sm font-bold text-slate-700">-</p>
+            </div>
+            <div>
+                <p class="text-[9px] text-slate-400 uppercase font-bold">ไฟล์</p>
+                <p id="layerSource" class="text-[10px] font-medium text-slate-600 truncate">-</p>
+            </div>
+        </div>
+        <div class="mt-4 flex gap-2">
+            <button onclick="copyCode()" class="flex-1 bg-slate-900 text-white text-[10px] font-bold py-2.5 rounded-xl">คัดลอกรหัส</button>
+            <button id="navBtn" class="flex-1 bg-blue-50 text-blue-600 text-[10px] font-bold py-2.5 rounded-xl">นำทาง</button>
+        </div>
     </div>
 
     <script>
-        let map;
-        let geoLayers = [];
-        let droneTileLayer = null;
-        let localTileMap = new Map();
+        let map, droneLayer, vectorLayers = [];
+        let measureSource, measureVector, drawInteraction;
+        let isMeasuring = false;
+        const localTileUrls = new Map();
 
-        function initMap() {
-            const lastPos = JSON.parse(localStorage.getItem('map_last_pos') || '{"lat": 15.418727, "lng": 103.057069, "zoom": 16}');
-            map = L.map('map', { zoomControl: false, maxZoom: 22, tap: true }).setView([lastPos.lat, lastPos.lng], lastPos.zoom);
-            L.control.zoom({ position: 'topright' }).addTo(map);
-            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { maxZoom: 22, subdomains:['mt0','mt1','mt2','mt3'], zIndex: 0 }).addTo(map);
+        function init() {
+            const lastPos = JSON.parse(localStorage.getItem('ol_pos') || '{"lon":103.057069,"lat":15.418727,"zoom":16}');
+
+            const googleLayer = new ol.layer.Tile({
+                source: new ol.source.XYZ({
+                    url: 'https://mt{0-3}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                    maxZoom: 22
+                })
+            });
+
+            measureSource = new ol.source.Vector();
+            measureVector = new ol.layer.Vector({
+                source: measureSource,
+                style: new ol.style.Style({
+                    stroke: new ol.style.Stroke({ color: '#ef4444', width: 3, lineDash: [5, 10] }),
+                    image: new ol.style.Circle({ radius: 5, fill: new ol.style.Fill({ color: '#ef4444' }) })
+                }),
+                zIndex: 100
+            });
+
+            map = new ol.Map({
+                target: 'map',
+                layers: [googleLayer, measureVector],
+                view: new ol.View({
+                    center: ol.proj.fromLonLat([lastPos.lon, lastPos.lat]),
+                    zoom: lastPos.zoom,
+                    maxZoom: 24
+                })
+            });
+
+            map.on('singleclick', function(evt) {
+                if (isMeasuring) return;
+                const coordinate = ol.proj.toLonLat(evt.coordinate);
+                document.getElementById('coordDisplay').textContent = `${coordinate[1].toFixed(6)}, ${coordinate[0].toFixed(6)}`;
+                let found = null;
+                map.forEachFeatureAtPixel(evt.pixel, function(feature, layer) {
+                    if (found) return;
+                    if (layer && layer.get('isParcel')) {
+                        found = { feature, layerName: layer.get('name'), coord: coordinate };
+                    }
+                });
+                if (found) showInfo(found); else closePanel();
+            });
 
             map.on('moveend', () => {
-                const center = map.getCenter();
-                const zoom = map.getZoom();
-                localStorage.setItem('map_last_pos', JSON.stringify({ lat: center.lat, lng: center.lng, zoom: zoom }));
+                const view = map.getView();
+                const center = ol.proj.toLonLat(view.getCenter());
+                localStorage.setItem('ol_pos', JSON.stringify({ lon: center[0], lat: center[1], zoom: view.getZoom() }));
             });
-
-            map.on('click', (e) => {
-                const latlng = e.latlng;
-                document.getElementById('coordDisplay').textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
-                const result = findParcelCodeAtPoint(latlng);
-                if (result) showResult(result.code, result.fileName, false);
-                else showResult("ไม่พบข้อมูล", "พิกัดอยู่นอกขอบเขตแปลง", true);
-            });
-
-            // ตรวจสอบเบื้องต้นว่ารันผ่าน Server หรือไม่
-            if (window.location.protocol === 'file:') {
-                document.getElementById('pathHint').innerHTML = "⚠️ คุณเปิดไฟล์ตรงๆ กรุณา 1.ใช้ปุ่มเลือกโฟลเดอร์ หรือ 2.รันผ่าน Apache";
-                document.getElementById('quickLoadBtn').classList.replace('bg-orange-500', 'bg-gray-400');
-            }
         }
 
-        // --- ฟังก์ชันดึงภาพตามเงื่อนไขสภาพแวดล้อม ---
-        function loadFixedPathTiles() {
-            if (window.location.protocol === 'file:') {
-                alert("ระบบไม่สามารถเข้าถึงไฟล์ C:\\ หรือเมมมือถือได้โดยตรงหากไม่ได้รันผ่าน Web Server\n\nวิธีแก้ไข:\n1. ใช้ปุ่มเลือกโฟลเดอร์ด้านล่าง\n2. หรือรันผ่าน localhost/Apache");
-                return;
-            }
+        // --- Tile Handling (FIXED) ---
 
-            if (droneTileLayer) map.removeLayer(droneTileLayer);
-            
-            // ใช้ Relative Path ซึ่งจะทำงานได้ทั้งบน Apache (PC) และแอป Server (Mobile)
-            // โดยต้องวางโฟลเดอร์ tiles ไว้คู่กับ index.html
-            droneTileLayer = L.tileLayer('tiles/{z}/{x}/{y}.png', {
-                maxZoom: 22,
-                zIndex: 10,
-                opacity: 1.0,
-                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-            }).addTo(map);
-
-            updateUI();
-            console.log("Tiles loaded from server path: tiles/{z}/{x}/{y}.png");
-        }
-
-        // --- ระบบเลือกโฟลเดอร์ (Manual) ---
+        // 1. โหลดจาก Folder ในเครื่อง
         document.getElementById('folderInput').addEventListener('change', function(e) {
             const files = Array.from(e.target.files);
             if (files.length === 0) return;
-            document.getElementById('loader').style.display = 'flex';
-            localTileMap.forEach(url => URL.revokeObjectURL(url));
-            localTileMap.clear();
+
+            localTileUrls.clear();
             files.forEach(file => {
+                // ค้นหาโครงสร้าง z/x/y ในชื่อไฟล์
                 const parts = file.webkitRelativePath.split('/');
-                if (parts.length >= 3) {
-                    const z = parts[parts.length - 3], x = parts[parts.length - 2], y = parts[parts.length - 1].split('.')[0];
-                    localTileMap.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
+                const len = parts.length;
+                if (len >= 3) {
+                    const z = parts[len-3];
+                    const x = parts[len-2];
+                    const y = parts[len-1].split('.')[0];
+                    if (!isNaN(z) && !isNaN(x) && !isNaN(y)) {
+                        localTileUrls.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
+                    }
                 }
             });
-            if (droneTileLayer) map.removeLayer(droneTileLayer);
-            const LocalFolderLayer = L.TileLayer.extend({
-                getTileUrl: function(coords) { return localTileMap.get(`${coords.z}/${coords.x}/${coords.y}`) || ''; }
+
+            if (droneLayer) map.removeLayer(droneLayer);
+            
+            droneLayer = new ol.layer.Tile({
+                source: new ol.source.XYZ({
+                    tileUrlFunction: function(tileCoord) {
+                        const z = tileCoord[0];
+                        const x = tileCoord[1];
+                        const y = tileCoord[2]; // OpenLayers Y
+                        
+                        // ลองทั้งแบบ Y ปกติ และแบบกลับด้าน (TMS)
+                        const key1 = `${z}/${x}/${y}`;
+                        const key2 = `${z}/${x}/${-y-1}`;
+                        
+                        return localTileUrls.get(key1) || localTileUrls.get(key2) || '';
+                    },
+                    maxZoom: 22
+                }),
+                zIndex: 5
             });
-            droneTileLayer = new LocalFolderLayer({ maxZoom: 22, zIndex: 10 }).addTo(map);
+            
+            map.addLayer(droneLayer);
             updateUI();
-            document.getElementById('loader').style.display = 'none';
+            
+            // ซูมไปหาถ้าเป็นไปได้ (สุ่มเช็คตำแหน่งไฟล์แรก)
+            if (localTileUrls.size > 0) {
+                console.log(`Loaded ${localTileUrls.size} tiles locally.`);
+            }
         });
 
+        // 2. โหลดจาก Server (HTTP)
+        function loadRemoteTiles() {
+            const url = prompt("ระบุ URL ของ Tiles (เช่น http://localhost:8080/tiles/{z}/{x}/{y}.png)", "tiles/{z}/{x}/{y}.png");
+            if (!url) return;
+
+            if (droneLayer) map.removeLayer(droneLayer);
+            droneLayer = new ol.layer.Tile({
+                source: new ol.source.XYZ({
+                    url: url,
+                    crossOrigin: 'anonymous'
+                }),
+                zIndex: 5
+            });
+            map.addLayer(droneLayer);
+            updateUI();
+        }
+
+        // --- GeoJSON Load ---
         document.getElementById('geojsonInput').addEventListener('change', async function(e) {
             const files = Array.from(e.target.files);
-            if (files.length === 0) return;
             document.getElementById('loader').style.display = 'flex';
-            for (const file of files) {
+            for (const f of files) {
                 try {
-                    const data = JSON.parse(await file.text());
-                    const layer = L.geoJSON(data, { style: { color: '#00ffff', weight: 1, fillOpacity: 0.1 } }).addTo(map);
-                    geoLayers.push({ name: file.name, layer: layer });
-                    if (geoLayers.length === 1) map.fitBounds(layer.getBounds());
-                } catch (err) {}
+                    const text = await f.text();
+                    const data = JSON.parse(text);
+                    const source = new ol.source.Vector({
+                        features: new ol.format.GeoJSON().readFeatures(data, { featureProjection: 'EPSG:3857' })
+                    });
+                    const layer = new ol.layer.Vector({
+                        source: source,
+                        style: new ol.style.Style({
+                            stroke: new ol.style.Stroke({ color: '#3b82f6', width: 2 }),
+                            fill: new ol.style.Fill({ color: 'rgba(59, 130, 246, 0.15)' })
+                        }),
+                        properties: { isParcel: true, name: f.name }
+                    });
+                    map.addLayer(layer);
+                    vectorLayers.push(layer);
+                    if (vectorLayers.length === 1) map.getView().fit(source.getExtent(), { padding: [50, 50, 50, 50], duration: 1000 });
+                } catch(err) { console.error(err); }
             }
             updateUI();
             document.getElementById('loader').style.display = 'none';
         });
 
-        function findParcelCodeAtPoint(latlng) {
-            const point = turf.point([latlng.lng, latlng.lat]);
-            for (let i = geoLayers.length - 1; i >= 0; i--) {
-                const { layer, name } = geoLayers[i];
-                let foundCode = null;
-                layer.eachLayer(l => {
-                    if (foundCode) return;
-                    if (l.getBounds && !l.getBounds().contains(latlng)) return;
-                    try {
-                        if (l.feature && turf.booleanPointInPolygon(point, l.feature)) {
-                            const p = l.feature.properties;
-                            foundCode = p?.parcel_cod || p?.Parcel_cod || p?.PARCEL_COD || p?.id || p?.code;
-                        }
-                    } catch (e) {}
+        // --- Utilities ---
+        function toggleMeasure() {
+            isMeasuring = !isMeasuring;
+            const btn = document.getElementById('measureBtn');
+            map.removeInteraction(drawInteraction);
+            measureSource.clear();
+            if (isMeasuring) {
+                btn.classList.add('active');
+                drawInteraction = new ol.interaction.Draw({ source: measureSource, type: 'LineString' });
+                drawInteraction.on('drawend', (e) => {
+                    const length = ol.sphere.getLength(e.feature.getGeometry());
+                    document.getElementById('coordDisplay').textContent = `ระยะ: ${(length).toFixed(2)} ม.`;
                 });
-                if (foundCode) return { code: foundCode, fileName: name };
-            }
-            return null;
+                map.addInteraction(drawInteraction);
+            } else btn.classList.remove('active');
+        }
+
+        function handleSearch(val) {
+            const resDiv = document.getElementById('searchResults');
+            if (!val || val.length < 2) { resDiv.classList.add('hidden'); return; }
+            let results = [];
+            vectorLayers.forEach(l => {
+                l.getSource().getFeatures().forEach(f => {
+                    const p = f.getProperties();
+                    const code = String(p.parcel_cod || p.Parcel_cod || p.id || '');
+                    if (code.toLowerCase().includes(val.toLowerCase())) results.push({ code, feature: f });
+                });
+            });
+            if (results.length) {
+                resDiv.innerHTML = results.slice(0, 5).map(r => `<div onclick="focusParcel('${r.code}')" class="p-2 hover:bg-slate-100 cursor-pointer text-xs border-b">📍 ${r.code}</div>`).join('');
+                resDiv.classList.remove('hidden');
+            } else resDiv.classList.add('hidden');
+        }
+
+        window.focusParcel = (code) => {
+            document.getElementById('searchResults').classList.add('hidden');
+            vectorLayers.forEach(l => {
+                l.getSource().getFeatures().forEach(f => {
+                    const c = String(f.getProperties().parcel_cod || f.getProperties().Parcel_cod || f.getProperties().id || '');
+                    if (c === code) {
+                        const extent = f.getGeometry().getExtent();
+                        map.getView().fit(extent, { padding: [100, 100, 100, 100], duration: 1000 });
+                        showInfo({ feature: f, layerName: l.get('name'), coord: ol.proj.toLonLat(ol.extent.getCenter(extent)) });
+                    }
+                });
+            });
+        };
+
+        function showInfo(obj) {
+            const p = obj.feature.getProperties();
+            const code = p.parcel_cod || p.Parcel_cod || p.id || 'N/A';
+            document.getElementById('parcelDisplay').textContent = code;
+            document.getElementById('layerSource').textContent = obj.layerName;
+            const area = ol.sphere.getArea(obj.feature.getGeometry());
+            const rai = Math.floor(area / 1600);
+            const ngan = Math.floor((area % 1600) / 400);
+            const wa = ((area % 400) / 4).toFixed(1);
+            document.getElementById('areaDisplay').textContent = `${rai}-${ngan}-${wa} ไร่`;
+            document.getElementById('navBtn').onclick = () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${obj.coord[1]},${obj.coord[0]}`, '_blank');
+            const panel = document.getElementById('resultPanel');
+            panel.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+            panel.classList.add('pointer-events-auto');
+        }
+
+        function closePanel() {
+            const panel = document.getElementById('resultPanel');
+            panel.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
         }
 
         function updateUI() {
-            const list = document.getElementById('layerList');
-            const items = [];
-            geoLayers.forEach(l => items.push(`<span class="layer-item geojson-badge">📄 ${l.name}</span>`));
-            if (droneTileLayer) items.push(`<span class="layer-item drone-badge">🚁 Drone Map</span>`);
-            list.innerHTML = items.join('');
+            const container = document.getElementById('layerList');
+            const chips = vectorLayers.map(l => `<span class="layer-item geojson-badge">📄 ${l.get('name')}</span>`);
+            if (droneLayer) chips.push('<span class="layer-item drone-badge">🚁 Drone Tiles Active</span>');
+            container.innerHTML = chips.join('');
         }
 
-        function clearLayers() {
-            geoLayers.forEach(l => map.removeLayer(l.layer));
-            if (droneTileLayer) {
-                map.removeLayer(droneTileLayer);
-                localTileMap.forEach(url => URL.revokeObjectURL(url));
-            }
-            geoLayers = []; droneTileLayer = null; localTileMap.clear();
+        function clearAll() {
+            vectorLayers.forEach(l => map.removeLayer(l));
+            if (droneLayer) map.removeLayer(droneLayer);
+            vectorLayers = []; droneLayer = null;
             updateUI(); closePanel();
         }
 
-        function showResult(text, source, isError) {
-            const display = document.getElementById('parcelDisplay');
-            display.textContent = text;
-            display.className = isError ? "text-lg font-bold text-red-500" : "text-2xl font-black text-slate-800";
-            document.getElementById('layerSource').textContent = source ? `ที่มา: ${source}` : "";
-            document.getElementById('resultPanel').classList.remove('hidden');
+        function getCurrentLocation() {
+            navigator.geolocation.getCurrentPosition(pos => {
+                const coord = ol.proj.fromLonLat([pos.coords.longitude, pos.coords.latitude]);
+                map.getView().animate({ center: coord, zoom: 19 });
+            });
         }
 
-        function closePanel() { document.getElementById('resultPanel').classList.add('hidden'); }
-        window.onload = initMap;
+        function copyCode() {
+            navigator.clipboard.writeText(document.getElementById('parcelDisplay').textContent);
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
