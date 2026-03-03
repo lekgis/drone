@@ -71,7 +71,7 @@
                 <span class="text-xl">🛰️</span>
                 <div>
                     <h1 class="text-sm md:text-base font-black leading-none">PARCEL OL FIX</h1>
-                    <p class="text-[9px] text-slate-400 tracking-widest uppercase">SW Style + Enhanced Crosshair</p>
+                    <p class="text-[9px] text-slate-400 tracking-widest uppercase">SW Style + Closed Loop Draft</p>
                 </div>
             </div>
             <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700 text-blue-300">
@@ -112,23 +112,13 @@
 
     <div class="relative">
         <div id="map">
-            <!-- ปรับแก้เป้าตามคำขอ: วงกว้างขึ้นอีก 30% และตัดเส้นภายในออก -->
             <div id="crosshair">
                 <svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <!-- จุดศูนย์กลางเล็กๆ -->
                     <circle cx="50" cy="50" r="2.5" fill="white"/>
-                    
-                    <!-- วงกลมหลัก (กว้างขึ้น 30% จาก 20 เป็น 26) -->
                     <circle cx="50" cy="50" r="26" stroke="white" stroke-width="3"/>
-                    
-                    <!-- เส้นแกนกลาง (ตัดส่วนที่อยู่ในรัศมี 26 ออก) -->
-                    <!-- เส้นบน: จาก Y=0 ถึง Y=50-26=24 -->
                     <path d="M50 0V24" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <!-- เส้นล่าง: จาก Y=50+26=76 ถึง Y=100 -->
                     <path d="M50 76V100" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <!-- เส้นซ้าย: จาก X=0 ถึง X=50-26=24 -->
                     <path d="M0 50H24" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                    <!-- เส้นขวา: จาก X=50+26=76 ถึง X=100 -->
                     <path d="M76 50H100" stroke="white" stroke-width="3" stroke-linecap="round"/>
                 </svg>
             </div>
@@ -141,7 +131,7 @@
             <div id="measureAreaBtn" onclick="toggleMeasure('Polygon')" class="map-btn" title="วัดพื้นที่">📐</div>
         </div>
 
-        <!-- Draw Controls (SW Style) -->
+        <!-- Draw Controls -->
         <div id="drawControls" class="draw-controls">
             <button onclick="undoPoint()" class="map-btn bg-white text-slate-700 shadow-xl" title="ย้อนกลับ">↩️</button>
             <button onclick="addPointAtCrosshair()" class="map-btn bg-blue-600 text-white shadow-xl scale-125 mb-4" title="เพิ่มจุด">➕</button>
@@ -185,7 +175,6 @@
         let activeMeasureType = null; 
         const localTileUrls = new Map();
 
-        // --- Styles for Measurement ---
         const createLabelStyle = (text, rotation = 0) => {
             return new ol.style.Text({
                 text: text,
@@ -305,10 +294,7 @@
                 const view = map.getView();
                 const center = ol.proj.toLonLat(view.getCenter());
                 localStorage.setItem('ol_pos', JSON.stringify({ lon: center[0], lat: center[1], zoom: view.getZoom() }));
-                
-                if (activeMeasureType) {
-                    updateDraftLine();
-                }
+                updateDraftLine();
             });
 
             map.getView().on('change:center', updateDraftLine);
@@ -316,7 +302,6 @@
 
         function getCrosshairMapCoordinate() {
             const size = map.getSize();
-            // Y คือ 35% จากขอบบน (หรือ 65% จากขอบล่างตาม CSS)
             const pixel = [size[0] / 2, size[1] * 0.35]; 
             return map.getCoordinateFromPixel(pixel);
         }
@@ -328,23 +313,28 @@
             const features = measureSource.getFeatures();
             if (features.length === 0) return;
 
-            const lastFeature = features[0];
-            const geom = lastFeature.getGeometry();
+            const feature = features[0];
+            const geom = feature.getGeometry();
             const crosshairCoord = getCrosshairMapCoordinate();
-            let lastCoord;
 
             if (activeMeasureType === 'LineString') {
                 const coords = geom.getCoordinates();
-                lastCoord = coords[coords.length - 1];
+                const lastCoord = coords[coords.length - 1];
+                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([lastCoord, crosshairCoord])));
             } else if (activeMeasureType === 'Polygon') {
                 const ring = geom.getCoordinates()[0];
-                lastCoord = ring[ring.length - 2]; 
-            }
+                // จุดแรกของรูป
+                const firstCoord = ring[0];
+                // จุดสุดท้ายที่วาดเสร็จแล้ว (ก่อนถึงตัวปิดวง)
+                const lastCoord = ring[ring.length - 2]; 
 
-            if (lastCoord) {
-                const draftGeom = new ol.geom.LineString([lastCoord, crosshairCoord]);
-                const draftFeature = new ol.Feature(draftGeom);
-                draftSource.addFeature(draftFeature);
+                // วาดเส้นประจากจุดสุดท้ายไปยังเป้า
+                draftSource.addFeature(new ol.Feature(new ol.geom.LineString([lastCoord, crosshairCoord])));
+                
+                // หากมีจุดมากกว่า 2 จุดขึ้นไป (เริ่มเป็นรูปทรง) ให้วาดเส้นประจากเป้ากลับไปยังจุดแรกด้วย (Closed Loop)
+                if (ring.length > 3) {
+                    draftSource.addFeature(new ol.Feature(new ol.geom.LineString([crosshairCoord, firstCoord])));
+                }
             }
         }
 
@@ -362,6 +352,7 @@
                     geom.setCoordinates(coords);
                 } else if (activeMeasureType === 'Polygon') {
                     const ring = geom.getCoordinates()[0];
+                    // แทรกจุดใหม่ก่อนจุดสุดท้าย (ซึ่งเป็นจุดปิดที่เชื่อมกับจุดเริ่ม)
                     ring.splice(ring.length - 1, 0, crosshairCoord);
                     geom.setCoordinates([ring]);
                 }
@@ -370,6 +361,7 @@
                 if (activeMeasureType === 'LineString') {
                     newFeature = new ol.Feature(new ol.geom.LineString([crosshairCoord, crosshairCoord]));
                 } else {
+                    // สร้าง Polygon เริ่มต้น 3 จุดที่ตำแหน่งเดียวกัน (จุดเริ่ม, จุดวาด, จุดปิด)
                     newFeature = new ol.Feature(new ol.geom.Polygon([[crosshairCoord, crosshairCoord, crosshairCoord]]));
                 }
                 measureSource.addFeature(newFeature);
