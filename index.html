@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ระบบตรวจสอบแปลงที่ดิน (Mobile Friendly)</title>
+    <title>ระบบตรวจสอบแปลงที่ดิน (MS4W Optimized)</title>
     <!-- Libraries -->
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -11,30 +11,26 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <style>
-        #map { height: calc(100vh - 300px); width: 100%; background: #000; cursor: crosshair; }
-        @media (min-width: 768px) {
-            #map { height: calc(100vh - 240px); }
-        }
-        .layer-item { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; background: #f3f4f6; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+        #map { height: calc(100vh - 360px); width: 100%; background: #1a1a1a; cursor: crosshair; }
+        @media (min-width: 768px) { #map { height: calc(100vh - 240px); } }
+        .layer-item { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; background: #f3f4f6; border: 1px solid #d1d5db; display: flex; align-items: center; gap: 4px; }
         .drone-badge { background: #f59e0b; color: white; border-color: #d97706; }
         .geojson-badge { background: #6366f1; color: white; border-color: #4f46e5; }
-        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; color: white; text-align: center; flex-direction: column; padding: 20px; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 9999; justify-content: center; align-items: center; color: white; flex-direction: column; }
+        .status-msg { font-size: 11px; margin-top: 5px; font-weight: bold; }
     </style>
 </head>
 <body class="bg-gray-50 font-sans overflow-x-hidden">
 
     <div id="loader" class="loading-overlay">
         <div class="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-white mb-4"></div>
-        <p class="font-bold text-lg text-white">กำลังประมวลผลข้อมูล...</p>
-        <p id="progressStatus" class="text-xs mt-2 text-gray-400"></p>
+        <p class="font-bold text-lg">กำลังประมวลผล...</p>
     </div>
 
     <header class="bg-slate-900 text-white p-3 shadow-xl">
         <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-sm md:text-lg font-bold flex items-center gap-2">
-                <span class="text-xl">🌍</span> ระบบตรวจสอบที่ดิน
-            </h1>
-            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-2 py-1 rounded border border-slate-700">แตะบนแผนที่</div>
+            <h1 class="text-sm md:text-lg font-bold flex items-center gap-2">🌍 ระบบตรวจสอบที่ดิน (MS4W)</h1>
+            <div id="coordDisplay" class="text-[10px] font-mono bg-slate-800 px-2 py-1 rounded border border-slate-700 text-emerald-400">พร้อมใช้งาน</div>
         </div>
     </header>
 
@@ -47,36 +43,30 @@
                        class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-indigo-600 file:text-white cursor-pointer"/>
             </div>
 
-            <!-- 2. นำเข้า Tiles (XYZ) -->
+            <!-- 2. จัดการรูปภาพโดรน -->
             <div class="border-2 border-solid border-orange-200 rounded-xl p-2 bg-orange-50/30">
-                <label class="block text-[10px] font-bold text-orange-600 uppercase mb-2">2. จัดการรูปภาพโดรน (Tiles)</label>
+                <label class="block text-[10px] font-bold text-orange-600 uppercase mb-1">2. ข้อมูลภาพโดรน (Apache MS4W)</label>
                 
+                <div class="mb-2">
+                    <label class="text-[9px] text-gray-500 block mb-1">URL แหล่งข้อมูล (XYZ Tiles)</label>
+                    <input type="text" id="tileServerUrl" value="http://localhost/tiles" 
+                           placeholder="เช่น http://localhost/tiles"
+                           class="w-full text-[10px] p-1.5 border rounded bg-white font-mono">
+                </div>
+
                 <div class="flex flex-col gap-2">
-                    <!-- วิธีที่ 1: ดึงภาพอัตโนมัติจากโฟลเดอร์ที่ตั้งค่าไว้ -->
                     <button id="quickLoadBtn" onclick="loadFixedPathTiles()" 
                             class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-orange-500 text-white rounded-lg text-xs font-bold hover:bg-orange-600 shadow-sm transition-all active:scale-95">
-                        <span>⚡</span> ดึงภาพอัตโนมัติ (จากโฟลเดอร์ tiles)
+                        <span>🔄</span> โหลด/รีเฟรชภาพโดรน
                     </button>
-                    
-                    <div class="relative flex items-center py-1">
-                        <div class="flex-grow border-t border-gray-200"></div>
-                        <span class="flex-shrink mx-2 text-[9px] text-gray-400 uppercase font-bold">หรือเลือกเอง</span>
-                        <div class="flex-grow border-t border-gray-200"></div>
-                    </div>
-
-                    <!-- วิธีที่ 2: เลือกเอง (Manual) -->
-                    <input type="file" id="folderInput" webkitdirectory directory
-                           class="block w-full text-[10px] text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-bold file:bg-gray-200 file:text-gray-700 cursor-pointer"/>
+                    <div id="statusMsg" class="status-msg text-center"></div>
                 </div>
-                <p id="pathHint" class="text-[8px] text-gray-500 mt-2 italic leading-tight text-center">
-                    ระบบจะมองหาโฟลเดอร์ 'tiles' ที่อยู่ในตำแหน่งเดียวกับไฟล์นี้
-                </p>
             </div>
         </div>
         
-        <div class="flex justify-between items-center overflow-x-auto pb-1">
-            <div id="layerList" class="flex gap-2"></div>
-            <button onclick="clearLayers()" class="text-[10px] font-bold text-red-500 ml-2 whitespace-nowrap">ล้างข้อมูล</button>
+        <div class="flex justify-between items-center">
+            <div id="layerList" class="flex gap-2 overflow-x-auto pb-1"></div>
+            <button onclick="clearLayers()" class="text-[10px] font-bold text-red-500 ml-2 whitespace-nowrap bg-red-50 px-2 py-1 rounded">ล้างทั้งหมด</button>
         </div>
     </div>
 
@@ -95,121 +85,97 @@
         let map;
         let geoLayers = [];
         let droneTileLayer = null;
-        let localTileMap = new Map();
 
         function initMap() {
-            // โหลดตำแหน่งล่าสุด
             const lastPos = JSON.parse(localStorage.getItem('map_last_pos') || '{"lat": 15.418727, "lng": 103.057069, "zoom": 16}');
             
             map = L.map('map', { 
                 zoomControl: false, 
-                maxZoom: 22, // อนุญาตให้ซูมเข้าได้ถึงระดับ 22
-                tap: true 
+                maxZoom: 22,
+                preferCanvas: true 
             }).setView([lastPos.lat, lastPos.lng], lastPos.zoom);
 
             L.control.zoom({ position: 'topright' }).addTo(map);
 
-            // ฐานแผนที่ Google Hybrid
-            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { 
-                maxZoom: 22, 
-                subdomains:['mt0','mt1','mt2','mt3'], 
-                zIndex: 0 
+            // 🟢 1. โหลด Google Satellite เป็นพื้นหลัง (zIndex: 0)
+            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
+                maxZoom: 22,
+                subdomains:['mt0','mt1','mt2','mt3'],
+                zIndex: 0
             }).addTo(map);
 
-            // บันทึกตำแหน่งแผนที่
+            // 🟢 2. โหลดภาพโดรนทันที (Auto-load) เหมือนในโค้ด OpenLayers ของคุณ
+            loadFixedPathTiles();
+
             map.on('moveend', () => {
                 const center = map.getCenter();
-                const zoom = map.getZoom();
-                localStorage.setItem('map_last_pos', JSON.stringify({ lat: center.lat, lng: center.lng, zoom: zoom }));
+                localStorage.setItem('map_last_pos', JSON.stringify({ 
+                    lat: center.lat, lng: center.lng, zoom: map.getZoom() 
+                }));
             });
 
-            // คลิกเพื่อดูรหัสแปลง
             map.on('click', (e) => {
-                const latlng = e.latlng;
-                document.getElementById('coordDisplay').textContent = `${latlng.lat.toFixed(5)}, ${latlng.lng.toFixed(5)}`;
-                const result = findParcelCodeAtPoint(latlng);
+                const result = findParcelCodeAtPoint(e.latlng);
                 if (result) showResult(result.code, result.fileName, false);
-                else showResult("ไม่พบข้อมูล", "พิกัดอยู่นอกขอบเขตแปลง", true);
+                else showResult("ไม่พบข้อมูล", "อยู่นอกเขตแปลงที่โหลดไว้", true);
             });
-
-            // ตรวจสอบ protocol
-            if (window.location.protocol === 'file:') {
-                document.getElementById('pathHint').innerHTML = "⚠️ โหมดไฟล์ (file://): ปุ่มดึงภาพอัตโนมัติอาจถูกบล็อก <br>แนะนำให้รันผ่าน Apache หรือ Web Server";
-            }
         }
 
-        // --- ฟังก์ชันดึงภาพอัตโนมัติจาก Path ตายตัว ---
         function loadFixedPathTiles() {
-            if (droneTileLayer) map.removeLayer(droneTileLayer);
+            const status = document.getElementById('statusMsg');
+            let baseUrl = document.getElementById('tileServerUrl').value.trim();
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
             
-            // ใช้ Path ตรงไปที่โฟลเดอร์ tiles/
-            // เพิ่ม maxNativeZoom เพื่อบอก Leaflet ว่าภาพจริงเรามีถึงแค่ระดับไหน (เช่น 18 หรือ 19)
-            // ถ้าซูมเกินนั้น (20, 21, 22) Leaflet จะทำการขยายภาพ (Scale) ให้โดยไม่อ่านไฟล์ใหม่
-            droneTileLayer = L.tileLayer('tiles/{z}/{x}/{y}.png', {
-                maxZoom: 22,
-                maxNativeZoom: 19, // ปรับเป็นระดับสูงสุดที่คุณ Export ไฟล์ออกมาจริง
-                zIndex: 10,
-                opacity: 1.0,
-                tms: false,
-                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
-            }).addTo(map);
+            const tilePattern = `${baseUrl}/{z}/{x}/{y}.png`;
+            
+            status.textContent = `🔄 กำลังดึง Tiles...`;
+            status.className = "status-msg text-center text-orange-500";
+            status.classList.remove('hidden');
 
+            if (droneTileLayer) map.removeLayer(droneTileLayer);
+
+            // ✅ zIndex: 10 เพื่อให้ทับ Google Satellite (เหมือนใน OpenLayers zIndex: 1)
+            droneTileLayer = L.tileLayer(tilePattern, {
+                maxZoom: 22,
+                minZoom: 0,
+                zIndex: 10, 
+                opacity: 1.0,
+                crossOrigin: 'anonymous', 
+                errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+            });
+
+            let hasSuccess = false;
+            droneTileLayer.on('tileload', () => {
+                if (!hasSuccess) {
+                    hasSuccess = true;
+                    status.textContent = "✅ เชื่อมต่อภาพโดรนสำเร็จ";
+                    status.className = "status-msg text-center text-emerald-600";
+                }
+            });
+
+            droneTileLayer.on('tileerror', () => {
+                if (!hasSuccess) {
+                    status.innerHTML = `❌ ไม่พบภาพที่: ${baseUrl}`;
+                    status.className = "status-msg text-center text-red-500";
+                }
+            });
+
+            droneTileLayer.addTo(map);
             updateUI();
         }
 
-        // --- ระบบเลือกโฟลเดอร์ Manual ---
-        document.getElementById('folderInput').addEventListener('change', function(e) {
-            const files = Array.from(e.target.files);
-            if (files.length === 0) return;
-            document.getElementById('loader').style.display = 'flex';
-            
-            localTileMap.forEach(url => URL.revokeObjectURL(url));
-            localTileMap.clear();
-
-            let maxZFound = 0;
-            files.forEach(file => {
-                const parts = file.webkitRelativePath.split('/');
-                if (parts.length >= 3) {
-                    const z = parseInt(parts[parts.length - 3]), 
-                          x = parts[parts.length - 2], 
-                          y = parts[parts.length - 1].split('.')[0];
-                    if (z > maxZFound) maxZFound = z;
-                    localTileMap.set(`${z}/${x}/${y}`, URL.createObjectURL(file));
-                }
-            });
-
-            if (droneTileLayer) map.removeLayer(droneTileLayer);
-            
-            const LocalFolderLayer = L.TileLayer.extend({
-                getTileUrl: function(coords) { 
-                    return localTileMap.get(`${coords.z}/${coords.x}/${coords.y}`) || ''; 
-                }
-            });
-
-            droneTileLayer = new LocalFolderLayer({ 
-                maxZoom: 22, 
-                maxNativeZoom: maxZFound, // ใช้ระดับซูมสูงสุดที่เจอในโฟลเดอร์
-                zIndex: 10 
-            }).addTo(map);
-            
-            updateUI();
-            document.getElementById('loader').style.display = 'none';
-        });
-
-        // --- นำเข้า GeoJSON ---
         document.getElementById('geojsonInput').addEventListener('change', async function(e) {
             const files = Array.from(e.target.files);
-            if (files.length === 0) return;
             document.getElementById('loader').style.display = 'flex';
             for (const file of files) {
                 try {
                     const data = JSON.parse(await file.text());
-                    const layer = L.geoJSON(data, { 
-                        style: { color: '#00ffff', weight: 1, fillOpacity: 0.1 } 
+                    const layer = L.geoJSON(data, {
+                        style: { color: '#00ffff', weight: 2, fillOpacity: 0.1 }
                     }).addTo(map);
                     geoLayers.push({ name: file.name, layer: layer });
                     if (geoLayers.length === 1) map.fitBounds(layer.getBounds());
-                } catch (err) {}
+                } catch (err) { console.error(err); }
             }
             updateUI();
             document.getElementById('loader').style.display = 'none';
@@ -222,11 +188,10 @@
                 let foundCode = null;
                 layer.eachLayer(l => {
                     if (foundCode) return;
-                    if (l.getBounds && !l.getBounds().contains(latlng)) return;
                     try {
                         if (l.feature && turf.booleanPointInPolygon(point, l.feature)) {
                             const p = l.feature.properties;
-                            foundCode = p?.parcel_cod || p?.Parcel_cod || p?.PARCEL_COD || p?.id || p?.code;
+                            foundCode = p.parcel_cod || p.Parcel_cod || p.PARCEL_COD || p.id || p.code;
                         }
                     } catch (e) {}
                 });
@@ -237,19 +202,17 @@
 
         function updateUI() {
             const list = document.getElementById('layerList');
-            const items = [];
-            geoLayers.forEach(l => items.push(`<span class="layer-item geojson-badge">📄 ${l.name}</span>`));
-            if (droneTileLayer) items.push(`<span class="layer-item drone-badge">🚁 Drone Map</span>`);
-            list.innerHTML = items.join('');
+            let html = '';
+            geoLayers.forEach(l => html += `<span class="layer-item geojson-badge">📄 ${l.name}</span>`);
+            if (droneTileLayer) html += `<span class="layer-item drone-badge">🚁 ภาพโดรน</span>`;
+            list.innerHTML = html;
         }
 
         function clearLayers() {
             geoLayers.forEach(l => map.removeLayer(l.layer));
-            if (droneTileLayer) {
-                map.removeLayer(droneTileLayer);
-                localTileMap.forEach(url => URL.revokeObjectURL(url));
-            }
-            geoLayers = []; droneTileLayer = null; localTileMap.clear();
+            if (droneTileLayer) map.removeLayer(droneTileLayer);
+            geoLayers = []; droneTileLayer = null;
+            document.getElementById('statusMsg').classList.add('hidden');
             updateUI(); closePanel();
         }
 
@@ -257,7 +220,7 @@
             const display = document.getElementById('parcelDisplay');
             display.textContent = text;
             display.className = isError ? "text-lg font-bold text-red-500" : "text-2xl font-black text-slate-800";
-            document.getElementById('layerSource').textContent = source ? `ที่มา: ${source}` : "";
+            document.getElementById('layerSource').textContent = `ที่มา: ${source}`;
             document.getElementById('resultPanel').classList.remove('hidden');
         }
 
